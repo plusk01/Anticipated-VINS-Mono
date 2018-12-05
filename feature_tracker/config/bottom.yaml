@@ -1,0 +1,26 @@
+%YAML:1.0
+
+# Intel Aero Drone bottom-facing OM7251 global-shutter camera
+
+# camera calibration 
+model_type: PINHOLE
+camera_name: camera
+image_width: 640
+image_height: 480
+distortion_parameters:
+   k1: 0
+   k2: 0
+   p1: 0
+   p2: 0
+projection_parameters:
+   fx: 460
+   fy: 460
+   cx: 320
+   cy: 240
+
+# Feature Tracker Parameters
+equalize: 1             # histogram equalization for lighting variance
+border_margin: 10       # ignore the features found in border pixels
+min_distance: 30        # GFTT minimum distance
+max_features: 150       # number of GFTT to maintain
+F_reproj_error: 1.0     # reprojection error threshold for findFundamentalMat

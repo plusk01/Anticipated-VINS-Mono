@@ -1,306 +1,347 @@
-#include "feature_tracker.h"
+/**
+ * @file feature_tracker.cpp
+ * @author Parker Lusk <parkerclusk@gmail.com>
+ */
 
-int FeatureTracker::n_id = 0;
+#include "anticipation/feature_tracker.h"
 
-bool inBorder(const cv::Point2f &pt)
+#include <algorithm>
+#include <iostream>
+
+#include <camodocal/camera_models/CameraFactory.h>
+
+namespace anticipation
 {
-    const int BORDER_SIZE = 1;
-    int img_x = cvRound(pt.x);
-    int img_y = cvRound(pt.y);
-    return BORDER_SIZE <= img_x && img_x < COL - BORDER_SIZE && BORDER_SIZE <= img_y && img_y < ROW - BORDER_SIZE;
+
+FeatureTracker::FeatureTracker(const std::string& calib_file,
+                               const Parameters& params)
+: params_(params)
+{
+  // create camera model from calibration YAML file
+  m_camera_ = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
+
+  // initialize the Shi-Tomasi Good Features To Tracker detector
+  detector_ = initGFTTDetector();
+
+  // initialize Lucas-Kanade Optical Flow
+  flow_ = initOpticalFlow();
+
+  // Create the adaptive histogram equalization object
+  clahe_ = cv::createCLAHE(3.0, cv::Size(8, 8));
 }
 
-void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
+// ----------------------------------------------------------------------------
+
+void FeatureTracker::process(const cv::Mat& img, double timestamp)
 {
-    int j = 0;
-    for (int i = 0; i < int(v.size()); i++)
-        if (status[i])
-            v[j++] = v[i];
-    v.resize(j);
+  static std::vector<cv::Point2f> features0;
+  static double timestamp0 = 0;
+
+  // notation: <var>0 is from time k-1, while <var>1 is from time k (current)
+  cv::Mat img1;
+
+  // equalize the image histogram to minimize effects of lighting variation
+  if (params_.equalize) {
+    clahe_->apply(img, img1);
+  } else {
+    img1 = img;
+  }
+
+  // on first iteration, initialize last image to the current image
+  static cv::Mat img0 = img1;
+
+  // update dt
+  dt_ = timestamp - timestamp0;
+
+  //
+  // Track previous features into this frame using optical flow
+  //
+
+  features1_.clear();
+
+  if (features0.size()) {
+    std::vector<unsigned char> matches;
+    calculateFlow(img0, img1, features0, features1_, matches);
+
+    // features and metadata should all be the same size
+    assert(features0.size() == features1_.size());
+    assert(features0.size() == ids1_.size());
+    assert(features0.size() == lifetimes1_.size());
+
+    // Only keep features that were matched in both frames
+    // and that are within the border of the image
+    size_t j = 0;
+    for (size_t i=0; i<matches.size(); ++i) {
+      // make sure the propagated point is within the border of the image
+      if (matches[i] && withinBorder(features1_[i])) {
+        features0[j] = features0[i];
+        features1_[j] = features1_[i];
+
+        // update feature metadata at the same time
+        ids1_[j] = (ids1_[i] == 0) ? nextId_++ : ids1_[i];  // set ID if unset
+        lifetimes1_[j] = lifetimes1_[i] + 1;                // inc lifetime
+
+        j++;
+      }
+    }
+    features0.resize(j);
+    features1_.resize(j);
+    ids1_.resize(j);
+    lifetimes1_.resize(j);
+  }
+
+  //
+  // Geometric verification and outlier rejection
+  //
+  
+  // use fundamental matrix and RANSAC to reject points that
+  // don't make sense geometrically.
+  rejectWithF(features0);
+
+  // enforce minimum distance of features, and build a mask
+  // that indicates where new features should be found
+  cv::Mat mask = enforceMinDist(features0);
+
+
+  //
+  // Create normalized image plane points and velocities
+  //
+
+  createMeasurements(features0);
+
+
+  //
+  // Detect new features to maintain the user-defined number
+  //
+
+  int numFeaturesToDetect = params_.maxFeatures - static_cast<int>(features1_.size());
+  if (numFeaturesToDetect > 0) {
+
+    // update the number of features to detect
+    detector_->setMaxFeatures(numFeaturesToDetect);
+
+    // look for more features using mask to detect in sparse regions
+    std::vector<cv::Point2f> newFeatures1;
+    detectFeatures(img1, newFeatures1, mask);
+
+    // add new features for next time
+    size_t newSize = features1_.size() + newFeatures1.size();
+    features1_.reserve(newSize);
+    ids1_.reserve(newSize);
+    lifetimes1_.reserve(newSize);
+    for (const auto& feature : newFeatures1) {
+      features1_.push_back(feature);
+      ids1_.push_back(0);
+      lifetimes1_.push_back(0);
+    }
+  }
+
+  // save for next iteration
+  img0 = img1;
+  features0 = features1_;
+  timestamp0 = timestamp;
 }
 
-void reduceVector(vector<int> &v, vector<uchar> status)
+// ----------------------------------------------------------------------------
+// Private Methods
+// ----------------------------------------------------------------------------
+
+cv::Ptr<cv::GFTTDetector> FeatureTracker::initGFTTDetector()
 {
-    int j = 0;
-    for (int i = 0; i < int(v.size()); i++)
-        if (status[i])
-            v[j++] = v[i];
-    v.resize(j);
+  // default parameters for GFTT
+  constexpr double cornerQuality = 0.01;
+  constexpr int blockSize = 3;
+  constexpr bool useHarrisDetector = false;
+  constexpr double k = 0.04;
+
+  return cv::GFTTDetector::create(params_.maxFeatures, cornerQuality,
+                        params_.minDistance, blockSize, useHarrisDetector, k);
 }
 
+// ----------------------------------------------------------------------------
 
-FeatureTracker::FeatureTracker()
+cv::Ptr<cv::SparsePyrLKOpticalFlow> FeatureTracker::initOpticalFlow()
 {
+  return cv::SparsePyrLKOpticalFlow::create(); 
 }
 
-void FeatureTracker::setMask()
+// ----------------------------------------------------------------------------
+
+void FeatureTracker::calculateFlow(const cv::Mat& grey0, const cv::Mat& grey1,
+                                   const std::vector<cv::Point2f>& features0,
+                                   std::vector<cv::Point2f>& features1,
+                                   std::vector<unsigned char>& matches)
 {
-    if(FISHEYE)
-        mask = fisheye_mask.clone();
-    else
-        mask = cv::Mat(ROW, COL, CV_8UC1, cv::Scalar(255));
-    
-
-    // prefer to keep features that are tracked for long time
-    vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
-
-    for (unsigned int i = 0; i < forw_pts.size(); i++)
-        cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(forw_pts[i], ids[i])));
-
-    sort(cnt_pts_id.begin(), cnt_pts_id.end(), [](const pair<int, pair<cv::Point2f, int>> &a, const pair<int, pair<cv::Point2f, int>> &b)
-         {
-            return a.first > b.first;
-         });
-
-    forw_pts.clear();
-    ids.clear();
-    track_cnt.clear();
-
-    for (auto &it : cnt_pts_id)
-    {
-        if (mask.at<uchar>(it.second.first) == 255)
-        {
-            forw_pts.push_back(it.second.first);
-            ids.push_back(it.second.second);
-            track_cnt.push_back(it.first);
-            cv::circle(mask, it.second.first, MIN_DIST, 0, -1);
-        }
-    }
+  flow_->calc(grey0, grey1, features0, features1, matches);
 }
 
-void FeatureTracker::addPoints()
+// ----------------------------------------------------------------------------
+
+void FeatureTracker::detectFeatures(const cv::Mat& grey,
+                                    std::vector<cv::Point2f>& features,
+                                    const cv::Mat& mask)
 {
-    for (auto &p : n_pts)
-    {
-        forw_pts.push_back(p);
-        ids.push_back(-1);
-        track_cnt.push_back(1);
-    }
+  std::vector<cv::KeyPoint> keypoints;
+  detector_->detect(grey, keypoints, mask);
+
+  // Unpack keypoints and create regular features points
+  features.reserve(keypoints.size());
+  for (auto&& key : keypoints) {
+    features.push_back(key.pt);
+  }
 }
 
-void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
+// ----------------------------------------------------------------------------
+
+bool FeatureTracker::withinBorder(const cv::Point2f& pt)
 {
-    cv::Mat img;
-    TicToc t_r;
-    cur_time = _cur_time;
-
-    if (EQUALIZE)
-    {
-        cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
-        TicToc t_c;
-        clahe->apply(_img, img);
-        ROS_DEBUG("CLAHE costs: %fms", t_c.toc());
-    }
-    else
-        img = _img;
-
-    if (forw_img.empty())
-    {
-        prev_img = cur_img = forw_img = img;
-    }
-    else
-    {
-        forw_img = img;
-    }
-
-    forw_pts.clear();
-
-    if (cur_pts.size() > 0)
-    {
-        TicToc t_o;
-        vector<uchar> status;
-        vector<float> err;
-        cv::calcOpticalFlowPyrLK(cur_img, forw_img, cur_pts, forw_pts, status, err, cv::Size(21, 21), 3);
-
-        for (int i = 0; i < int(forw_pts.size()); i++)
-            if (status[i] && !inBorder(forw_pts[i]))
-                status[i] = 0;
-        reduceVector(prev_pts, status);
-        reduceVector(cur_pts, status);
-        reduceVector(forw_pts, status);
-        reduceVector(ids, status);
-        reduceVector(cur_un_pts, status);
-        reduceVector(track_cnt, status);
-        ROS_DEBUG("temporal optical flow costs: %fms", t_o.toc());
-    }
-
-    for (auto &n : track_cnt)
-        n++;
-
-    if (PUB_THIS_FRAME)
-    {
-        rejectWithF();
-        ROS_DEBUG("set mask begins");
-        TicToc t_m;
-        setMask();
-        ROS_DEBUG("set mask costs %fms", t_m.toc());
-
-        ROS_DEBUG("detect feature begins");
-        TicToc t_t;
-        int n_max_cnt = MAX_CNT - static_cast<int>(forw_pts.size());
-        if (n_max_cnt > 0)
-        {
-            if(mask.empty())
-                cout << "mask is empty " << endl;
-            if (mask.type() != CV_8UC1)
-                cout << "mask type wrong " << endl;
-            if (mask.size() != forw_img.size())
-                cout << "wrong size " << endl;
-            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);
-        }
-        else
-            n_pts.clear();
-        ROS_DEBUG("detect feature costs: %fms", t_t.toc());
-
-        ROS_DEBUG("add feature begins");
-        TicToc t_a;
-        addPoints();
-        ROS_DEBUG("selectFeature costs: %fms", t_a.toc());
-    }
-    prev_img = cur_img;
-    prev_pts = cur_pts;
-    prev_un_pts = cur_un_pts;
-    cur_img = forw_img;
-    cur_pts = forw_pts;
-    undistortedPoints();
-    prev_time = cur_time;
+  int border = params_.borderMargin;
+  int u = std::round(pt.x);
+  int v = std::round(pt.y);
+  return (border <= u && u < m_camera_->imageWidth() - border) && 
+         (border <= v && v < m_camera_->imageHeight() - border);
 }
 
-void FeatureTracker::rejectWithF()
+// ----------------------------------------------------------------------------
+
+cv::Mat FeatureTracker::enforceMinDist(std::vector<cv::Point2f>& features0)
 {
-    if (forw_pts.size() >= 8)
-    {
-        ROS_DEBUG("FM ransac begins");
-        TicToc t_f;
-        vector<cv::Point2f> un_cur_pts(cur_pts.size()), un_forw_pts(forw_pts.size());
-        for (unsigned int i = 0; i < cur_pts.size(); i++)
-        {
-            Eigen::Vector3d tmp_p;
-            m_camera->liftProjective(Eigen::Vector2d(cur_pts[i].x, cur_pts[i].y), tmp_p);
-            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
-            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
-            un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
+  // create a new mask
+  cv::Mat mask(m_camera_->imageHeight(), m_camera_->imageWidth(), CV_8UC1, cv::Scalar(255));
 
-            m_camera->liftProjective(Eigen::Vector2d(forw_pts[i].x, forw_pts[i].y), tmp_p);
-            tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
-            tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
-            un_forw_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
-        }
+  // 
+  // Prefer to keep points that have been tracked the longest
+  // 
 
-        vector<uchar> status;
-        cv::findFundamentalMat(un_cur_pts, un_forw_pts, cv::FM_RANSAC, F_THRESHOLD, 0.99, status);
-        int size_a = cur_pts.size();
-        reduceVector(prev_pts, status);
-        reduceVector(cur_pts, status);
-        reduceVector(forw_pts, status);
-        reduceVector(cur_un_pts, status);
-        reduceVector(ids, status);
-        reduceVector(track_cnt, status);
-        ROS_DEBUG("FM ransac: %d -> %lu: %f", size_a, forw_pts.size(), 1.0 * forw_pts.size() / size_a);
-        ROS_DEBUG("FM ransac costs: %fms", t_f.toc());
+  std::vector<measurement_t> sorted;
+  sorted.reserve(features1_.size());
+  for (size_t i=0; i<features1_.size(); ++i) {
+    auto pt0 = features0[i];
+    auto pt = features1_[i];
+    auto id = ids1_[i];
+    auto ell = lifetimes1_[i];
+
+    // note that pt0 is in the place of 'nip' for typical measurements
+    // and that the 'vel' field is redundant
+    sorted.push_back(std::make_tuple(id, pt, pt0, ell, pt0));
+  }
+
+  auto comp = [](const auto& a, const auto& b) -> bool {
+                    return std::get<3>(a) > std::get<3>(b);
+              };
+  std::sort(sorted.begin(), sorted.end(), comp);
+
+  //
+  // Use mask to enforce a minimum distance between features
+  //
+
+  std::vector<cv::Point2f> kept_pts, kept_pts0;
+  std::vector<unsigned int> kept_ids, kept_lifetimes;
+  kept_pts0.reserve(features1_.size());
+  kept_pts.reserve(features1_.size());
+  kept_ids.reserve(features1_.size());
+  kept_lifetimes.reserve(features1_.size());
+
+  for (size_t i=0; i<sorted.size(); ++i) {
+    auto pt = std::get<1>(sorted[i]);
+    if (mask.at<uchar>(pt) == 255) {
+      auto id = std::get<0>(sorted[i]);
+      auto pt0 = std::get<2>(sorted[i]);
+      auto ell = std::get<3>(sorted[i]);
+
+      // keep good points and their metadata
+      kept_pts0.push_back(pt0);
+      kept_pts.push_back(pt);
+      kept_ids.push_back(id);
+      kept_lifetimes.push_back(ell);
+
+      // update mask
+      cv::circle(mask, pt, params_.minDistance, cv::Scalar(0), -1);
     }
+  }
+
+  kept_pts0.swap(features0);
+  kept_pts.swap(features1_);
+  kept_ids.swap(ids1_);
+  kept_lifetimes.swap(lifetimes1_);
+
+  return mask;
 }
 
-bool FeatureTracker::updateID(unsigned int i)
+// ----------------------------------------------------------------------------
+
+bool FeatureTracker::rejectWithF(std::vector<cv::Point2f>& features0)
 {
-    if (i < ids.size())
-    {
-        if (ids[i] == -1)
-            ids[i] = n_id++;
-        return true;
+  // features and metadata should all be the same size
+  assert(features0.size() == features1_.size());
+  assert(features0.size() == ids1_.size());
+  assert(features0.size() == lifetimes1_.size());
+
+  // fundamental matrix estimation requires 8 points
+  if (features1_.size() < 8) return false;
+
+  std::vector<unsigned char> status;
+  cv::findFundamentalMat(features0, features1_, cv::FM_RANSAC,
+                                  params_.reprojErrorF, 0.99, status);
+
+  // reject outliers
+  size_t j = 0;
+  for (size_t i=0; i<status.size(); ++i) {
+    if (status[i]) {
+      features0[j] = features0[i];
+      features1_[j] = features1_[i];
+      ids1_[j] = ids1_[i];
+      lifetimes1_[j] = lifetimes1_[i];
+      j++;
     }
-    else
-        return false;
+  }
+  features0.resize(j);
+  features1_.resize(j);
+  ids1_.resize(j);
+  lifetimes1_.resize(j);
+
+  return true;
 }
 
-void FeatureTracker::readIntrinsicParameter(const string &calib_file)
+// ----------------------------------------------------------------------------
+
+void FeatureTracker::createMeasurements(const std::vector<cv::Point2f>& features0)
 {
-    ROS_INFO("reading paramerter of camera %s", calib_file.c_str());
-    m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
+  // features and metadata should all be the same size
+  assert(features0.size() == features1_.size());
+  assert(features0.size() == ids1_.size());
+  assert(features0.size() == lifetimes1_.size());
+  assert(std::find(lifetimes1_.begin(), lifetimes1_.end(), 0) == lifetimes1_.end());
+
+  // allocate memory for new measurements
+  std::vector<measurement_t> measurements;
+  measurements.reserve(features1_.size());
+
+  for (size_t i=0; i<features1_.size(); ++i) {
+    auto pt0 = features0[i];
+    auto pt = features1_[i];
+    auto id = ids1_[i];
+    auto ell = lifetimes1_[i];
+
+    // undistort feature to normalized image plane
+    Eigen::Vector2d a(pt.x, pt.y);
+    Eigen::Vector3d b;
+    m_camera_->liftProjective(a, b);
+    auto nip = cv::Point2f(b.x() / b.z(), b.y() / b.z());
+
+    // undistort previous feature to nip
+    a << pt0.x, pt0.y;
+    m_camera_->liftProjective(a, b);
+    auto nip0 = cv::Point2f(b.x() / b.z(), b.y() / b.z());
+
+    // calculate velocity
+    auto vel = (nip - nip0) / dt_;
+
+    // create the measurement tuple
+    measurements.push_back(std::make_tuple(id, pt, nip, ell, vel));
+  }
+
+  measurements.swap(measurements_);
 }
 
-void FeatureTracker::showUndistortion(const string &name)
-{
-    cv::Mat undistortedImg(ROW + 600, COL + 600, CV_8UC1, cv::Scalar(0));
-    vector<Eigen::Vector2d> distortedp, undistortedp;
-    for (int i = 0; i < COL; i++)
-        for (int j = 0; j < ROW; j++)
-        {
-            Eigen::Vector2d a(i, j);
-            Eigen::Vector3d b;
-            m_camera->liftProjective(a, b);
-            distortedp.push_back(a);
-            undistortedp.push_back(Eigen::Vector2d(b.x() / b.z(), b.y() / b.z()));
-            //printf("%f,%f->%f,%f,%f\n)\n", a.x(), a.y(), b.x(), b.y(), b.z());
-        }
-    for (int i = 0; i < int(undistortedp.size()); i++)
-    {
-        cv::Mat pp(3, 1, CV_32FC1);
-        pp.at<float>(0, 0) = undistortedp[i].x() * FOCAL_LENGTH + COL / 2;
-        pp.at<float>(1, 0) = undistortedp[i].y() * FOCAL_LENGTH + ROW / 2;
-        pp.at<float>(2, 0) = 1.0;
-        //cout << trackerData[0].K << endl;
-        //printf("%lf %lf\n", p.at<float>(1, 0), p.at<float>(0, 0));
-        //printf("%lf %lf\n", pp.at<float>(1, 0), pp.at<float>(0, 0));
-        if (pp.at<float>(1, 0) + 300 >= 0 && pp.at<float>(1, 0) + 300 < ROW + 600 && pp.at<float>(0, 0) + 300 >= 0 && pp.at<float>(0, 0) + 300 < COL + 600)
-        {
-            undistortedImg.at<uchar>(pp.at<float>(1, 0) + 300, pp.at<float>(0, 0) + 300) = cur_img.at<uchar>(distortedp[i].y(), distortedp[i].x());
-        }
-        else
-        {
-            //ROS_ERROR("(%f %f) -> (%f %f)", distortedp[i].y, distortedp[i].x, pp.at<float>(1, 0), pp.at<float>(0, 0));
-        }
-    }
-    cv::imshow(name, undistortedImg);
-    cv::waitKey(0);
-}
-
-void FeatureTracker::undistortedPoints()
-{
-    cur_un_pts.clear();
-    cur_un_pts_map.clear();
-    //cv::undistortPoints(cur_pts, un_pts, K, cv::Mat());
-    for (unsigned int i = 0; i < cur_pts.size(); i++)
-    {
-        Eigen::Vector2d a(cur_pts[i].x, cur_pts[i].y);
-        Eigen::Vector3d b;
-        m_camera->liftProjective(a, b);
-        cur_un_pts.push_back(cv::Point2f(b.x() / b.z(), b.y() / b.z()));
-        cur_un_pts_map.insert(make_pair(ids[i], cv::Point2f(b.x() / b.z(), b.y() / b.z())));
-        //printf("cur pts id %d %f %f", ids[i], cur_un_pts[i].x, cur_un_pts[i].y);
-    }
-    // caculate points velocity
-    if (!prev_un_pts_map.empty())
-    {
-        double dt = cur_time - prev_time;
-        pts_velocity.clear();
-        for (unsigned int i = 0; i < cur_un_pts.size(); i++)
-        {
-            if (ids[i] != -1)
-            {
-                std::map<int, cv::Point2f>::iterator it;
-                it = prev_un_pts_map.find(ids[i]);
-                if (it != prev_un_pts_map.end())
-                {
-                    double v_x = (cur_un_pts[i].x - it->second.x) / dt;
-                    double v_y = (cur_un_pts[i].y - it->second.y) / dt;
-                    pts_velocity.push_back(cv::Point2f(v_x, v_y));
-                }
-                else
-                    pts_velocity.push_back(cv::Point2f(0, 0));
-            }
-            else
-            {
-                pts_velocity.push_back(cv::Point2f(0, 0));
-            }
-        }
-    }
-    else
-    {
-        for (unsigned int i = 0; i < cur_pts.size(); i++)
-        {
-            pts_velocity.push_back(cv::Point2f(0, 0));
-        }
-    }
-    prev_un_pts_map = cur_un_pts_map;
-}
+} // namespace anticipation

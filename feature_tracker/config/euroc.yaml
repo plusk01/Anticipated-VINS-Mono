@@ -1,0 +1,24 @@
+%YAML:1.0
+
+# camera calibration 
+model_type: PINHOLE
+camera_name: camera
+image_width: 752
+image_height: 480
+distortion_parameters:
+   k1: -2.917e-01
+   k2: 8.228e-02
+   p1: 5.333e-05
+   p2: -1.578e-04
+projection_parameters:
+   fx: 4.616e+02
+   fy: 4.603e+02
+   cx: 3.630e+02
+   cy: 2.481e+02
+
+# Feature Tracker Parameters
+equalize: 1             # histogram equalization for lighting variance
+border_margin: 1        # ignore the features found in border pixels
+min_distance: 30        # GFTT minimum distance
+max_features: 150       # number of GFTT to maintain
+F_reproj_error: 1.0     # reprojection error threshold for findFundamentalMat
