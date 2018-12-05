@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <memory>
 #include <queue>
 #include <map>
 #include <thread>
@@ -9,11 +10,13 @@
 #include <opencv2/opencv.hpp>
 
 #include "estimator.h"
+#include "feature_selector.h"
 #include "parameters.h"
 #include "utility/visualization.h"
 
 
 Estimator estimator;
+std::shared_ptr<FeatureSelector> f_selector;
 
 std::condition_variable con;
 double current_time = -1;
@@ -127,6 +130,9 @@ getMeasurements()
             IMUs.emplace_back(imu_buf.front());
             imu_buf.pop();
         }
+        // This IMU from after the next image will be used twice:
+        // Once this time (see linear interpolation notes below)
+        // and once next time (when it is actually removed).
         IMUs.emplace_back(imu_buf.front());
         if (IMUs.empty())
             ROS_WARN("no imu between two image");
@@ -212,10 +218,7 @@ void process()
     {
         std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
         std::unique_lock<std::mutex> lk(m_buf);
-        con.wait(lk, [&]
-                 {
-            return (measurements = getMeasurements()).size() != 0;
-                 });
+        con.wait(lk, [&] { return (measurements = getMeasurements()).size() != 0; });
         lk.unlock();
         m_estimator.lock();
         for (auto &measurement : measurements)
@@ -243,8 +246,13 @@ void process()
                     //printf("imu: dt:%f a: %f %f %f w: %f %f %f\n",dt, dx, dy, dz, rx, ry, rz);
 
                 }
-                else
+                else // this happens for that last IMU measurement that wasn't popped?
                 {
+
+                    // this block basically linearly interpolates between the previous
+                    // IMU measurement and the current one to create a virtual IMU
+                    // measurement that is at exactly the same time as the image.
+
                     double dt_1 = img_t - current_time;
                     double dt_2 = t - img_t;
                     current_time = img_t;
@@ -311,7 +319,7 @@ void process()
                 xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
                 image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
             }
-            estimator.processImage(image, img_msg->header);
+            f_selector->processImage(image, img_msg->header);
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
@@ -345,6 +353,7 @@ int main(int argc, char **argv)
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
     readParameters(n);
     estimator.setParameter();
+    f_selector = std::make_shared<FeatureSelector>(estimator);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif

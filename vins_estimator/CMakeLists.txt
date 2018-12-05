@@ -36,6 +36,7 @@ add_executable(vins_estimator
     src/estimator_node.cpp
     src/parameters.cpp
     src/estimator.cpp
+    src/feature_selector.cpp
     src/feature_manager.cpp
     src/factor/pose_local_parameterization.cpp
     src/factor/projection_factor.cpp
