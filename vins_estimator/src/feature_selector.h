@@ -58,16 +58,16 @@ private:
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
-  horizon_generation_t horizonGeneration_ = IMU;
+  horizon_generation_t horizonGeneration_ = GT;
   std::unique_ptr<HorizonGenerator> hgen_;
 
 
-  // state vector of current frame estimated from IMU propagation (yet-to-be-corrected)
-  xVector xk_;
-  Eigen::Quaterniond Qk_[HORIZON+1];
+  state_t state_0_; ///< state of last frame (from backend)
+  state_t state_k_; ///< state of current frame (from IMU prop)
   Eigen::Vector3d ak_;
 
-  xhVector generateFutureHorizon(int nrImuMeasurements, double deltaImu);
+  state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
+                                                    double deltaImu, double deltaFrame);
   std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
   Eigen::MatrixXd calcInfoFromRobotMotion();
 };
