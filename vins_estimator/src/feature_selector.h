@@ -61,6 +61,9 @@ private:
 
   bool visualize_ = true;
 
+  typedef enum { IMU, GT } horizon_generation_t;
+  horizon_generation_t horizonGeneration_ = GT;
+
   // state vector type definitions
   enum : int { xPOS = 0, xVEL = 3, xB_A = 6, xSIZE = 9 };
   using xVector = Eigen::Matrix<double, xSIZE, 1>;
@@ -68,10 +71,12 @@ private:
 
   // state vector of current frame estimated from IMU propagation (yet-to-be-corrected)
   xVector xk_;
-  Eigen::Quaterniond Qk_;
+  Eigen::Quaterniond Qk_[HORIZON+1];
   Eigen::Vector3d ak_;
 
   xhVector generateFutureHorizon(int nrImuMeasurements, double deltaImu);
+  xhVector horizonImu(int nrImuMeasurements, double deltaImu);
+  xhVector horizonGroundTruth();
   void visualizeFutureHorizon(const std_msgs::Header& header, const xhVector& x_kkH);
   std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
   Eigen::MatrixXd calcInfoFromRobotMotion();

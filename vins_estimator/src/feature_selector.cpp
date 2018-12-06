@@ -78,7 +78,7 @@ void FeatureSelector::setCurrentStateFromImuPropagation(const Eigen::Vector3d& P
   ROS_INFO_STREAM("accel: " << a.transpose());
 
   // rotation of the body w.r.t. the world at the kth frame
-  Qk_ = Q;
+  Qk_[0] = Q;
 }
 
 // ----------------------------------------------------------------------------
@@ -89,6 +89,27 @@ FeatureSelector::xhVector FeatureSelector::generateFutureHorizon(int nrImuMeasur
                                                                  double deltaImu)
 {
 
+  // generate the horizon based on the requested scheme
+  if (horizonGeneration_ == IMU) {
+    return horizonImu(nrImuMeasurements, deltaImu);
+  } else if (horizonGeneration_ == GT) {
+    return horizonGroundTruth();
+  }
+
+}
+
+// ----------------------------------------------------------------------------
+
+FeatureSelector::xhVector FeatureSelector::horizonGroundTruth()
+{
+  return {};
+}
+
+// ----------------------------------------------------------------------------
+
+FeatureSelector::xhVector FeatureSelector::horizonImu(int nrImuMeasurements,
+                                                      double deltaImu)
+{
   xhVector x_kkH;
   x_kkH.segment<xSIZE>(0*xSIZE) = xk_;
 
@@ -101,6 +122,9 @@ FeatureSelector::xhVector FeatureSelector::generateFutureHorizon(int nrImuMeasur
 
     // use the prev frame state to initialize the current k+h frame state
     x_kkH.segment<xSIZE>(h*xSIZE) = x_kkH.segment<xSIZE>((h-1)*xSIZE);
+
+    // we assume constant angular acceleration between image frames
+    // Qk_[h] = 
 
     // constant acceleration IMU propagation
     for (int i=0; i<nrImuMeasurements; ++i) {
