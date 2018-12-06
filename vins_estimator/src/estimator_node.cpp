@@ -319,7 +319,18 @@ void process()
                 xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
                 image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
             }
-            f_selector->processImage(image, img_msg->header);
+
+            //
+            // Intelligent Feature Selection
+            //
+
+            // pass information along
+            f_selector->setCurrentStateFromImuPropagation(tmp_P, tmp_Q, tmp_V, acc_0, tmp_Ba);
+
+            int nrImuMeasurements = static_cast<int>(measurement.first.size());
+            f_selector->processImage(image, img_msg->header, nrImuMeasurements);
+
+            // ----------------------------------------------------------------
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
@@ -353,7 +364,7 @@ int main(int argc, char **argv)
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
     readParameters(n);
     estimator.setParameter();
-    f_selector = std::make_shared<FeatureSelector>(estimator);
+    f_selector = std::make_shared<FeatureSelector>(n, estimator);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
