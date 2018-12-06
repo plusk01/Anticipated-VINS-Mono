@@ -5,12 +5,12 @@
 
 #include <Eigen/Dense>
 
-#define HORIZON 10 ///< number of frames to look into the future
+#define HORIZON 30 ///< number of frames to look into the future
 
 
 
 // state vector type definitions
-enum : int { xPOS = 0, xVEL = 3, xB_A = 6, xSIZE = 9 };
+enum : int { xTIMESTAMP = 0, xPOS = 1, xVEL = 4, xB_A = 7, xSIZE = 10 };
 using xVector = Eigen::Matrix<double, xSIZE, 1>;
 
 using state_t = std::pair<xVector, Eigen::Quaterniond>;

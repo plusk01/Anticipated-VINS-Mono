@@ -38,11 +38,17 @@ public:
    * @brief      Provides the (yet-to-be-corrected) pose estimate at time k,
    *             calculated via IMU propagation.
    *
+   * @param[in]  imuT  Pose time, stamped with IMU clock
+   * @param[in]  imgT  Pose time, stamped with image clock
    * @param[in]  P     Position at time k        (P_WB)
    * @param[in]  Q     Orientation at time k     (Q_WB)
    * @param[in]  V     Linear velocity at time k (V_WB)
+   * @param[in]  a     Linear accel at time k    (a_WB)
+   * @param[in]  Ba    Accel bias at time k      (in sensor frame)
    */
-  void setCurrentStateFromImuPropagation(const Eigen::Vector3d& P,
+  void setCurrentStateFromImuPropagation(double imuTimestamp,
+                                         double imgTimestamp,
+                                         const Eigen::Vector3d& P,
                                          const Eigen::Quaterniond& Q,
                                          const Eigen::Vector3d& V,
                                          const Eigen::Vector3d& a,

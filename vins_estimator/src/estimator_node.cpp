@@ -325,7 +325,9 @@ void process()
             //
 
             // pass information along
-            f_selector->setCurrentStateFromImuPropagation(tmp_P, tmp_Q, tmp_V, acc_0, tmp_Ba);
+            f_selector->setCurrentStateFromImuPropagation(latest_time,
+                        img_msg->header.stamp.toSec(), tmp_P, tmp_Q,
+                        tmp_V, acc_0, tmp_Ba);
 
             int nrImuMeasurements = static_cast<int>(measurement.first.size());
             f_selector->processImage(image, img_msg->header, nrImuMeasurements);

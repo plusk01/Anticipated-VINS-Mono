@@ -51,30 +51,56 @@ state_horizon_t HorizonGenerator::imu(const state_t& state_0, const state_t& sta
 
 // ----------------------------------------------------------------------------
 
-state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0, const state_t& state_1,
-                                          double timestamp, double deltaFrame)
+state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0,
+                                    const state_t& state_1, double deltaFrame)
 {
   state_horizon_t state_kkH;
 
-  // naive time synchronization with the current image frame and ground truth
+  // get the timestamp of the previous frame
+  double timestamp = state_0.first.coeff(xTIMESTAMP);
+
+  // if this condition is true, then it is likely the first state_0 (which may have random values)
+  if (timestamp > truth_.back().timestamp) timestamp = truth_.front().timestamp;
+
+  // naive time synchronization with the previous image frame and ground truth
   while (seek_idx_ < static_cast<int>(truth_.size()) && 
                           truth_[seek_idx_++].timestamp <= timestamp);
   int idx = seek_idx_-1;
 
+  // ground-truth pose of previous frame
+  Eigen::Vector3d prevP = truth_[idx].p;
+  Eigen::Quaterniond prevQ = truth_[idx].q;
 
-  state_kkH[0].first.segment<3>(xPOS) = truth_[idx].p;
-  state_kkH[0].first.segment<3>(xVEL) = truth_[idx].v;
-  state_kkH[0].first.segment<3>(xB_A) = Eigen::Vector3d::Zero();
+  // predict pose of camera for frames k to k+H
+  for (int h=0; h<=HORIZON; ++h) {
 
-  for (int h=1; h<=HORIZON; ++h) {
+    // while the inertial frame of ground truth and vins will be different,
+    // it is not a problem because we only care about _relative_ transformations.
+    auto gtPose = getNextFrameTruth(idx, timestamp, deltaFrame);
 
-    int i = idx + 20*h;
+    // Orientation of frame k+h w.r.t. orientation of frame k+h-1
+    auto relQ = prevQ.inverse() * gtPose.q;
 
-    state_kkH[h].first.segment<3>(xPOS) = truth_[i].p;
-    state_kkH[h].first.segment<3>(xVEL) = truth_[i].v;
-    state_kkH[h].first.segment<3>(xB_A) = Eigen::Vector3d::Zero();
+    // Position of frame k+h w.r.t. position of frame k+h-1
+    auto relP = /*gtPose.q.inverse() * */ (prevP - gtPose.p);
+
+
+    // "predict" where the current frame in the horizon (k+h)
+    // will be by applying this relative rotation to
+    // the previous frame (k+h-1)
+    if (h == 0) {
+      state_kkH[0].first.segment<3>(xPOS) = state_0.first.segment<3>(xPOS) + /* gtPose.q * */ relP;
+      state_kkH[0].second = state_0.second * relQ;
+    } else {
+      state_kkH[h].first.segment<3>(xPOS) = state_kkH[h-1].first.segment<3>(xPOS) + /* gtPose.q * */ relP;
+      state_kkH[h].second = state_kkH[h-1].second * relQ;
+    }
+
+    // for next iteration
+    prevP = gtPose.p;
+    prevQ = gtPose.q;
   }
-
+  
   return state_kkH;
 }
 
@@ -96,9 +122,9 @@ void HorizonGenerator::visualize(const std_msgs::Header& header,
 
     geometry_msgs::PoseStamped pose;
     pose.header = path.header;
-    pose.pose.position.x = x_h.x();
-    pose.pose.position.y = x_h.y();
-    pose.pose.position.z = x_h.z();
+    pose.pose.position.x = x_h.segment<3>(xPOS).x();
+    pose.pose.position.y = x_h.segment<3>(xPOS).y();
+    pose.pose.position.z = x_h.segment<3>(xPOS).z();
     pose.pose.orientation.w = q_h.w();
     pose.pose.orientation.x = q_h.x();
     pose.pose.orientation.y = q_h.y();
@@ -127,7 +153,7 @@ void HorizonGenerator::loadGroundTruth(std::string data_csv)
   truth_.clear();
 
   for (; it != CSVIterator(); ++it) {
-    truth data;
+    truth_t data;
 
     data.timestamp = std::stod((*it)[0])*1e-9; // convert ns to s
     data.p << std::stod((*it)[1]), std::stod((*it)[2]), std::stod((*it)[3]);
@@ -139,4 +165,18 @@ void HorizonGenerator::loadGroundTruth(std::string data_csv)
     truth_.push_back(data);
   }
 
+  // reset seek
+  seek_idx_ = 0;
+
+}
+
+// ----------------------------------------------------------------------------
+
+HorizonGenerator::truth_t HorizonGenerator::getNextFrameTruth(int& idx,
+                                        double timestamp, double deltaFrame)
+{
+
+  idx += 200*deltaFrame;
+
+  return truth_[idx];
 }
