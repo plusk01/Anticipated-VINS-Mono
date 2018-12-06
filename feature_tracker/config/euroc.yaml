@@ -17,6 +17,7 @@ projection_parameters:
    cy: 2.481e+02
 
 # Feature Tracker Parameters
+stride: 2               # only process every `stride`th frame
 equalize: 1             # histogram equalization for lighting variance
 border_margin: 1        # ignore the features found in border pixels
 min_distance: 30        # GFTT minimum distance

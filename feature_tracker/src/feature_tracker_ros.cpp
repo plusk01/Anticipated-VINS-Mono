@@ -35,6 +35,15 @@ FeatureTrackerROS::FeatureTrackerROS(ros::NodeHandle nh)
 
 void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
 {
+
+  //
+  // Determine if we should process this frame or not
+  //
+
+  if (++frame_ % stride_ != 0) {
+    return;
+  }
+
   cv::Mat img;
 
   try {
@@ -148,6 +157,9 @@ void FeatureTrackerROS::loadParameters()
 
   // read the config file so we can populate feature tracker parameters
   cv::FileStorage config(config_file_, cv::FileStorage::READ);
+
+  // frame processing
+  stride_ = config["stride"];
 
   // GFTT Parameters
   params_.equalize = static_cast<int>(config["equalize"]) != 0;

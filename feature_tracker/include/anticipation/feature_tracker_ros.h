@@ -26,9 +26,12 @@ public:
 private:
   ros::NodeHandle nh_;
 
+  int frame_ = 0; ///< what is the current frame number to process
+
   // parameters
   std::string config_file_;
   int window_length_ = 10;
+  int stride_ = 1;
   anticipation::FeatureTracker::Parameters params_;
 
   // feature tracker
