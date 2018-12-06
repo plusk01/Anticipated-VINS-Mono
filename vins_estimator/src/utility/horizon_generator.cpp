@@ -54,7 +54,7 @@ state_horizon_t HorizonGenerator::imu(const state_t& state_0, const state_t& sta
 state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0, const state_t& state_1,
                                           double timestamp, double deltaFrame)
 {
-  state_horizon_t state_kkH(HORIZON+1);
+  state_horizon_t state_kkH;
 
   // naive time synchronization with the current image frame and ground truth
   while (seek_idx_ < static_cast<int>(truth_.size()) && 
