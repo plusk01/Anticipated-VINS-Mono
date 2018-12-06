@@ -5,7 +5,7 @@
 
 #include <Eigen/Dense>
 
-#define HORIZON 30 ///< number of frames to look into the future
+#define HORIZON 10 ///< number of frames to look into the future
 
 
 

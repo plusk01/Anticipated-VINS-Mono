@@ -82,17 +82,17 @@ state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0,
     auto relQ = prevQ.inverse() * gtPose.q;
 
     // Position of frame k+h w.r.t. position of frame k+h-1
-    auto relP = /*gtPose.q.inverse() * */ (prevP - gtPose.p);
+    auto relP = gtPose.q.inverse() * (gtPose.p - prevP);
 
 
     // "predict" where the current frame in the horizon (k+h)
     // will be by applying this relative rotation to
     // the previous frame (k+h-1)
     if (h == 0) {
-      state_kkH[0].first.segment<3>(xPOS) = state_0.first.segment<3>(xPOS) + /* gtPose.q * */ relP;
+      state_kkH[0].first.segment<3>(xPOS) = state_0.first.segment<3>(xPOS) + state_0.second * relP;
       state_kkH[0].second = state_0.second * relQ;
     } else {
-      state_kkH[h].first.segment<3>(xPOS) = state_kkH[h-1].first.segment<3>(xPOS) + /* gtPose.q * */ relP;
+      state_kkH[h].first.segment<3>(xPOS) = state_kkH[h-1].first.segment<3>(xPOS) + state_kkH[h-1].second * relP;
       state_kkH[h].second = state_kkH[h-1].second * relQ;
     }
 
