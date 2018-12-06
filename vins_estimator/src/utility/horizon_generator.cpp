@@ -76,7 +76,7 @@ state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0,
 
     // while the inertial frame of ground truth and vins will be different,
     // it is not a problem because we only care about _relative_ transformations.
-    auto gtPose = getNextFrameTruth(idx, timestamp, deltaFrame);
+    auto gtPose = getNextFrameTruth(idx, deltaFrame);
 
     // Orientation of frame k+h w.r.t. orientation of frame k+h-1
     auto relQ = prevQ.inverse() * gtPose.q;
@@ -173,10 +173,13 @@ void HorizonGenerator::loadGroundTruth(std::string data_csv)
 // ----------------------------------------------------------------------------
 
 HorizonGenerator::truth_t HorizonGenerator::getNextFrameTruth(int& idx,
-                                        double timestamp, double deltaFrame)
+                                                            double deltaFrame)
 {
+  double nextTimestep = truth_[idx].timestamp + deltaFrame;
 
-  idx += 200*deltaFrame;
+  // naive time synchronization with the previous image frame and ground truth
+  while (idx < static_cast<int>(truth_.size()) && 
+                          truth_[idx++].timestamp <= nextTimestep);
 
   return truth_[idx];
 }
