@@ -36,7 +36,6 @@ add_executable(vins_estimator
     src/estimator_node.cpp
     src/parameters.cpp
     src/estimator.cpp
-    src/feature_selector.cpp
     src/feature_manager.cpp
     src/factor/pose_local_parameterization.cpp
     src/factor/projection_factor.cpp
@@ -49,6 +48,9 @@ add_executable(vins_estimator
     src/initial/initial_aligment.cpp
     src/initial/initial_sfm.cpp
     src/initial/initial_ex_rotation.cpp
+
+    src/feature_selector.cpp
+    src/utility/horizon_generator.cpp
     )
 
 

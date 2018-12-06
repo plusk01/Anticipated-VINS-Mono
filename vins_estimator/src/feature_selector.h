@@ -4,21 +4,17 @@
 #include <utility>
 #include <iostream>
 #include <vector>
+#include <memory>
 
 #include <ros/ros.h>
 #include <std_msgs/Header.h>
 
 #include <Eigen/Dense>
 
+#include "utility/state_defs.h"
+#include "utility/horizon_generator.h"
+
 #include "estimator.h"
-
-#define HORIZON 10 ///< number of frames to look into the future
-
-static const Eigen::Vector3d gravity = [] {
-  Eigen::Vector3d tmp;
-  tmp << 0, 0, -9.80665;
-  return tmp;
-}();
 
 class FeatureSelector
 {
@@ -55,19 +51,16 @@ public:
 private:
   // ROS stuff
   ros::NodeHandle nh_;
-  ros::Publisher pub_horizon_;
 
   Estimator& estimator_; ///< Reference to vins estimator object
 
   bool visualize_ = true;
 
+  // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
-  horizon_generation_t horizonGeneration_ = GT;
+  horizon_generation_t horizonGeneration_ = IMU;
+  std::unique_ptr<HorizonGenerator> hgen_;
 
-  // state vector type definitions
-  enum : int { xPOS = 0, xVEL = 3, xB_A = 6, xSIZE = 9 };
-  using xVector = Eigen::Matrix<double, xSIZE, 1>;
-  using xhVector = Eigen::Matrix<double, xSIZE*(HORIZON + 1), 1>;
 
   // state vector of current frame estimated from IMU propagation (yet-to-be-corrected)
   xVector xk_;
@@ -75,9 +68,6 @@ private:
   Eigen::Vector3d ak_;
 
   xhVector generateFutureHorizon(int nrImuMeasurements, double deltaImu);
-  xhVector horizonImu(int nrImuMeasurements, double deltaImu);
-  xhVector horizonGroundTruth();
-  void visualizeFutureHorizon(const std_msgs::Header& header, const xhVector& x_kkH);
   std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
   Eigen::MatrixXd calcInfoFromRobotMotion();
 };
