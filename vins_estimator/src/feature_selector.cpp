@@ -10,6 +10,14 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
 
 // ----------------------------------------------------------------------------
 
+void FeatureSelector::setParameters(double accVar, double accBiasVar)
+{
+  accVarDTime_ = accVar;
+  accBiasVarDTime_ = accBiasVar;
+}
+
+// ----------------------------------------------------------------------------
+
 void FeatureSelector::setCurrentStateFromImuPropagation(
     double imuTimestamp, double imageTimestamp,
     const Eigen::Vector3d& P, const Eigen::Quaterniond& Q,
@@ -156,10 +164,10 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
   // the covariance in equation (52) and characterizes the noise in a
   // preintegrated set of IMU measurements using the linear IMU model.
 
-  // TODO: Be more clever and only calculate the upper-triangular
-  //       and then transpose since this is a symmetric PSD matrix
+  // NOTE: We are even more clever and only calculate the upper-triangular
+  // and then transpose since this is a symmetric PSD matrix
 
-  omega_horizon_t Omega_kkH;
+  omega_horizon_t Omega_kkH = omega_horizon_t::Zero();
 
   for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
 
@@ -168,6 +176,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     const auto& Qj = x_kkH[h].second;
 
     // Create Ablk and Ω as explained in the appendix
+    // ROS_WARN_STREAM("Horizon " << h << " (nr IMU: " << nrImuMeasurements << ")");
     auto mats = createLinearImuMatrices(Qi, Qj, nrImuMeasurements, deltaImu);
 
     // convenience: select sub-blocks to add to, based on h
@@ -180,14 +189,20 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     block1 += mats.second.transpose()*mats.first*mats.second;
 
     // At*Ω (top-right sub-block)
-    block2 += mats.second.transpose()*mats.first;
+    auto tmp = mats.second.transpose()*mats.first;
+    block2 += tmp;
     
     // Ω*A (bottom-left sub-block)
-    block3 += mats.first*mats.second;
+    block3 += tmp.transpose();
 
     // Ω (bottom-right sub-block)
     block4 += mats.second;
   }
+
+  // ROS_INFO_STREAM("Omega_kkH:\n" << Omega_kkH);
+
+  // Eigen::EigenSolver<omega_horizon_t> es(Omega_kkH);
+  // ROS_WARN_STREAM("eig: " << es.eigenvalues().real().transpose());
 
   return Omega_kkH;
 }
@@ -260,7 +275,15 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
   Ablk.block<3, 3>(0, 6) = Nij;
   Ablk.block<3, 3>(3, 6) = Mij;
 
- return std::make_pair(covImu, Ablk);
+  // // https://stackoverflow.com/a/33577450/2392520
+  // Eigen::JacobiSVD<omega_t> svd(covImu);
+  // double cond = svd.singularValues()(0) / svd.singularValues()(svd.singularValues().size()-1);
+
+  // ROS_INFO_STREAM("covImu ("<<cond<<"):\n" << covImu);
+  // ROS_INFO_STREAM("covImu^-1 ("<<cond<<"):\n" << covImu.inverse());
+  // ROS_INFO_STREAM("\nAblk:\n" << Ablk);
+
+ return std::make_pair(covImu.inverse(), Ablk);
 }
 
 // ----------------------------------------------------------------------------

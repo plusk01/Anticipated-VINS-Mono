@@ -10,6 +10,7 @@
 #include <std_msgs/Header.h>
 
 #include <Eigen/Dense>
+#include <Eigen/SVD>
 
 #include "utility/state_defs.h"
 #include "utility/horizon_generator.h"
@@ -24,6 +25,9 @@ public:
 
   FeatureSelector(ros::NodeHandle nh, Estimator& estimator);
   ~FeatureSelector() = default;
+
+
+  void setParameters(double accVar, double accBiasVar);
 
   /**
    * @brief      Process features to be selected
@@ -44,6 +48,7 @@ public:
    * @param[in]  Q     Orientation at time k     (Q_WB)
    * @param[in]  V     Linear velocity at time k (V_WB)
    * @param[in]  a     Linear accel at time k    (a_WB)
+   * @param[in]  w     Angular vel at time k     (w_WB)
    * @param[in]  Ba    Accel bias at time k      (in sensor frame)
    */
   void setCurrentStateFromImuPropagation(
@@ -60,8 +65,9 @@ private:
 
   bool visualize_ = true;
 
-  // IMU parameters
-  double accVarDTime_, accBiasVarDTime_;
+  // IMU parameters. TODO: Check if these are/should be discrete
+  double accVarDTime_ = 0.01;
+  double accBiasVarDTime_ = 0.0001;
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
@@ -90,11 +96,26 @@ private:
   /**
    * @brief      Calculate the expected info gain from robot motion
    *
+   * @param[in]  x_kkH              The horizon (rotations are needed)
+   * @param[in]  nrImuMeasurements  Num IMU measurements between frames
+   * @param[in]  deltaImu           Sampling period of IMU
+   *
    * @return     Returns OmegaIMU (bar) from equation (15)
    */
   omega_horizon_t calcInfoFromRobotMotion(const state_horizon_t& x_kkH,
                   double nrImuMeasurements, double deltaImu);
 
+  /**
+   * @brief      Create Ablk and OmegaIMU (no bar, eq 15) using pairs
+   *             of consecutive frames in the horizon.
+   *
+   * @param[in]  Qi                 Orientation at frame i
+   * @param[in]  Qj                 Orientation at frame j
+   * @param[in]  nrImuMeasurements  Num IMU measurements between frames
+   * @param[in]  deltaImu           Sampling period of IMU
+   *
+   * @return     OmegaIMU (no bar) and Ablk for given frame pair
+   */
   std::pair<omega_t, ablk_t> createLinearImuMatrices(
       const Eigen::Quaterniond& Qi, const Eigen::Quaterniond& Qj,
       double nrImuMeasurements, double deltaImu);

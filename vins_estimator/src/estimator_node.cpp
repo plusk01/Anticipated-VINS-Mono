@@ -370,6 +370,7 @@ int main(int argc, char **argv)
     readParameters(n);
     estimator.setParameter();
     f_selector = std::make_shared<FeatureSelector>(n, estimator);
+    f_selector->setParameters(ACC_N, ACC_W);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
