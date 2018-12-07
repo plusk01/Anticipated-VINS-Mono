@@ -79,7 +79,7 @@ void FeatureSelector::processImage(const image_t& image,
   //
 
   // Calculate the information content from motion over the horizon (eq 15)
-  auto OmegaIMU = calcInfoFromRobotMotion();
+  auto OmegaIMU = calcInfoFromRobotMotion(state_kkH, nrImuMeasurements, deltaImu);
 
   // Add in prior information (eq 16)
   auto Omega = addOmegaPrior(OmegaIMU);
@@ -128,7 +128,8 @@ std::vector<Eigen::MatrixXd> FeatureSelector::calcInfoFromFeatures(const image_t
 
 // ----------------------------------------------------------------------------
 
-omega_horizon_t FeatureSelector::calcInfoFromRobotMotion()
+omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
+        const state_horizon_t& x_kkH, double nrImuMeasurements, double deltaImu)
 {
   // ** Build the large information matrix over the horizon (eq 15).
   // 
@@ -161,8 +162,13 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion()
   omega_horizon_t Omega_kkH;
 
   for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
+
+    // convenience: frames (i, j) are a consecutive pair in horizon    
+    const auto& Qi = x_kkH[h-1].second;
+    const auto& Qj = x_kkH[h].second;
+
     // Create Ablk and Ω as explained in the appendix
-    auto mats = createLinearImuMatrices();
+    auto mats = createLinearImuMatrices(Qi, Qj, nrImuMeasurements, deltaImu);
 
     // convenience: select sub-blocks to add to, based on h
     Eigen::Ref<Eigen::MatrixXd> block1 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, (h-1)*STATE_SIZE);
@@ -188,9 +194,73 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion()
 
 // ----------------------------------------------------------------------------
 
-std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices()
+std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
+      const Eigen::Quaterniond& Qi, const Eigen::Quaterniond& Qj,
+      double nrImuMeasurements, double deltaImu)
 {
- return std::make_pair<omega_t, ablk_t>({}, {});
+  //
+  // "Pre-integrate" future IMU measurements over horizon
+  //
+
+  // helper matrices, equations (47) and (48)
+  Eigen::Matrix3d Nij = Eigen::Matrix3d::Zero();
+  Eigen::Matrix3d Mij = Eigen::Matrix3d::Zero();
+
+  // initialize block coefficients
+  double CCt_11 = 0;
+  double CCt_12 = 0;
+
+  // This is an IMU-rate for loop
+  for (int i=0; i<nrImuMeasurements; ++i) {
+
+    // slerp from Qi toward Qj by where we are in between the frames
+    // (this will never slerp all the way to Qj)
+    auto q = Qi.slerp(i/static_cast<double>(nrImuMeasurements), Qj);
+
+    // so many indices...
+    double jkh = (nrImuMeasurements - i - 0.5);
+    Nij += jkh * q.toRotationMatrix();
+    Mij += q.toRotationMatrix();
+
+    // entries of CCt
+    CCt_11 += jkh*jkh;
+    CCt_12 += jkh;
+  }
+
+  // powers of IMU sampling period
+  const double deltaImu_2 = deltaImu*deltaImu;
+  const double deltaImu_3 = deltaImu_2*deltaImu;
+  const double deltaImu_4 = deltaImu_3*deltaImu;
+
+  //
+  // Build cov(eta^imu_ij) -- see equation (52)
+  // 
+
+  // NOTE: In paper, bottom right entry of CCt should have (j-k), not (j-k-1).
+  omega_t covImu = omega_t::Zero();
+  covImu.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity()
+          * nrImuMeasurements * CCt_11 * deltaImu_4 * accVarDTime_;
+  covImu.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity()
+          * CCt_11 * deltaImu_3 * accVarDTime_;
+  covImu.block<3, 3>(3, 0) = covImu.block<3, 3>(0, 3).transpose();
+  covImu.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity()
+          * nrImuMeasurements * deltaImu_2 * accVarDTime_;
+  covImu.block<3, 3>(6, 6) = Eigen::Matrix3d::Identity()
+          * nrImuMeasurements * accBiasVarDTime_;
+
+  //
+  // Build Ablk -- see equation (50)
+  //
+  
+  Nij *= deltaImu_2;
+  Mij *= deltaImu;
+
+  ablk_t Ablk = -ablk_t::Identity();
+  Ablk.block<3, 3>(0, 3) = -Eigen::Matrix3d::Identity() * nrImuMeasurements*deltaImu;
+  Ablk.block<3, 3>(0, 6) = Nij;
+  Ablk.block<3, 3>(3, 6) = Mij;
+
+ return std::make_pair(covImu, Ablk);
 }
 
 // ----------------------------------------------------------------------------

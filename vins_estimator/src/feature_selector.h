@@ -60,12 +60,15 @@ private:
 
   bool visualize_ = true;
 
+  // IMU parameters
+  double accVarDTime_, accBiasVarDTime_;
+
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
   horizon_generation_t horizonGeneration_ = GT;
   std::unique_ptr<HorizonGenerator> hgen_;
 
-
+  // state
   state_t state_0_; ///< state of last frame (from backend)
   state_t state_k_; ///< state of current frame (from IMU prop)
   Eigen::Vector3d ak_; ///< latest accel measurement (from IMU)
@@ -89,9 +92,12 @@ private:
    *
    * @return     Returns OmegaIMU (bar) from equation (15)
    */
-  omega_horizon_t calcInfoFromRobotMotion();
+  omega_horizon_t calcInfoFromRobotMotion(const state_horizon_t& x_kkH,
+                  double nrImuMeasurements, double deltaImu);
 
-  std::pair<omega_t, ablk_t> createLinearImuMatrices();
+  std::pair<omega_t, ablk_t> createLinearImuMatrices(
+      const Eigen::Quaterniond& Qi, const Eigen::Quaterniond& Qj,
+      double nrImuMeasurements, double deltaImu);
 
   omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
   
