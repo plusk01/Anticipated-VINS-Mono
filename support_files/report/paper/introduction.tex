@@ -1,5 +1,25 @@
 % !TEX root=../main.tex
 
-\section{Introduction}
+\section{Introduction}\label{sec:intro}
 
-This work is based on \cite{Carlone2017}.
+During aggressive maneuvers, vision-based perception techniques tend to fail because of the lack of tracked features.
+This is a well-known issue and is commonly reported in the literature~\cite{?}.
+The purpose of this project is to mitigate loss of feature tracks by being more clever in which features to use for graph-based state estimation.
+This adds robustness to the visual-inertial motion estimation pipeline by disregarding features that are predicted to soon be lost based on future robot motion.
+Further, we allow for more efficient optimization by using fewer features with high information content.
+
+This project accomplishes these goals by incorporating the attention and anticipation formulation of Carlone~\cite{Carlone2017} with the fixed-lag smoother of VINS-Mono~\cite{Qin2018}, a recent state-of-the-art implementation of visual-inertial odometry.
+The resulting implementation is publicly available\footnote{\url{https://github.com/plusk01/Anticipated-VINS-Mono}} and is referred to as \texttt{Anticipated VINS-Mono}.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{architecture.pdf} 
+\caption{System architecture of \texttt{Anticipated VINS-Mono.}}
+\label{fig:architecture} 
+\end{figure}
+
+The rest of this paper is organized as follows.
+In Section~\ref{sec:vinsmono} we discuss concepts related to visual-inertial odometry and an overview of VINS-Mono.
+In Section~\ref{sec:anticipation} we provide details of our implementation of attention and anticipation.
+In Section~\ref{sec:results} we give results.
+Finally, we conclude in Section~\ref{sec:conclusion}.

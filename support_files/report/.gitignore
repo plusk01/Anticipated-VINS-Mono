@@ -1,4 +1,5 @@
 *.fls
+*.out
 *.log
 *.blg
 *.bbl
