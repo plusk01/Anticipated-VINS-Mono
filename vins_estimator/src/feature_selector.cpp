@@ -38,11 +38,8 @@ void FeatureSelector::setCurrentStateFromImuPropagation(
   state_k_.second = Q;
 
   // the last IMU measurement
-  // ak_ = ((Eigen::Vector3d() << 9.17739, 0.0735499,  -2.61511).finished()); //a;
   ak_ = a;
   wk_ = w;
-
-  // ROS_INFO_STREAM("accel: " << a.transpose());
 }
 
 // ----------------------------------------------------------------------------

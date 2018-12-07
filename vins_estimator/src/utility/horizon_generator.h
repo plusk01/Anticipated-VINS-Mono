@@ -22,6 +22,18 @@ public:
   HorizonGenerator(ros::NodeHandle nh);
   ~HorizonGenerator() = default;
 
+  /**
+   * @brief      Generate horizon using constant acceleration IMU model
+   *
+   * @param[in]  state_0            The state of the prev frame (k-1)
+   * @param[in]  state_1            The state of the current (yet-to-be-corrected) frame (k)
+   * @param[in]  a                  Latest IMU acceleration measurement
+   * @param[in]  w                  Latest IMU angular vel measurement
+   * @param[in]  nrImuMeasurements  Number of IMU measurements from prev frame to now
+   * @param[in]  deltaImu           Sampling period of IMU measurements
+   *
+   * @return     a state horizon
+   */
   state_horizon_t imu(const state_t& state_0, const state_t& state_1,
                       const Eigen::Vector3d& a, const Eigen::Vector3d& w,
                       int nrImuMeasurements, double deltaImu);

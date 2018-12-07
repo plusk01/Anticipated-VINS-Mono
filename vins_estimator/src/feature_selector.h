@@ -62,7 +62,7 @@ private:
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
-  horizon_generation_t horizonGeneration_ = IMU;
+  horizon_generation_t horizonGeneration_ = GT;
   std::unique_ptr<HorizonGenerator> hgen_;
 
 
@@ -71,6 +71,16 @@ private:
   Eigen::Vector3d ak_; ///< latest accel measurement (from IMU)
   Eigen::Vector3d wk_; ///< latest ang. vel. measurement (from IMU)
 
+  /**
+   * @brief      Generate a future state horizon
+   *
+   * @param[in]  header             The header of the current image frame
+   * @param[in]  nrImuMeasurements  Num IMU measurements from prev to current frame
+   * @param[in]  deltaImu           Sampling period of IMU
+   * @param[in]  deltaFrame         Sampling period of image frames
+   *
+   * @return     a state horizon
+   */
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
   std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
