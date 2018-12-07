@@ -6,6 +6,9 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
 
   // create future state horizon generator / manager
   hgen_ = std::unique_ptr<HorizonGenerator>(new HorizonGenerator(nh_));
+
+  // set parameters for the horizon generator (extrinsics -- for visualization)
+  hgen_->setParameters(estimator_.ric[0], estimator_.tic[0]);
 }
 
 // ----------------------------------------------------------------------------

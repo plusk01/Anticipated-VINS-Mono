@@ -14,6 +14,14 @@ HorizonGenerator::HorizonGenerator(ros::NodeHandle nh)
 
 // ----------------------------------------------------------------------------
 
+void HorizonGenerator::setParameters(const Eigen::Matrix3d& R, const Eigen::Vector3d& t)
+{
+  q_imu2cam_ = R;
+  t_imu2cam_ = t;
+}
+
+// ----------------------------------------------------------------------------
+
 state_horizon_t HorizonGenerator::imu(
                       const state_t& state_0, const state_t& state_1,
                       const Eigen::Vector3d& a, const Eigen::Vector3d& w,
@@ -127,15 +135,19 @@ void HorizonGenerator::visualize(const std_msgs::Header& header,
     const auto& x_h = state_kkH[h].first;
     const auto& q_h = state_kkH[h].second;
 
+    // Compose world-to-imu estimate with imu-to-cam extrinsic transform
+    Eigen::Vector3d P = x_h.segment<3>(xPOS) + q_h * t_imu2cam_;
+    Eigen::Quaterniond R = q_h * q_imu2cam_;
+
     geometry_msgs::PoseStamped pose;
     pose.header = path.header;
-    pose.pose.position.x = x_h.segment<3>(xPOS).x();
-    pose.pose.position.y = x_h.segment<3>(xPOS).y();
-    pose.pose.position.z = x_h.segment<3>(xPOS).z();
-    pose.pose.orientation.w = q_h.w();
-    pose.pose.orientation.x = q_h.x();
-    pose.pose.orientation.y = q_h.y();
-    pose.pose.orientation.z = q_h.z();
+    pose.pose.position.x = P.x();
+    pose.pose.position.y = P.y();
+    pose.pose.position.z = P.z();
+    pose.pose.orientation.w = R.w();
+    pose.pose.orientation.x = R.x();
+    pose.pose.orientation.y = R.y();
+    pose.pose.orientation.z = R.z();
 
     path.poses.push_back(pose);
   }
