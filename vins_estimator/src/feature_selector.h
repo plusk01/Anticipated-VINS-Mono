@@ -83,6 +83,18 @@ private:
    */
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
+  
+  /**
+   * @brief      Calculate the expected info gain from robot motion
+   *
+   * @return     Returns OmegaIMU (bar) from equation (15)
+   */
+  omega_horizon_t calcInfoFromRobotMotion();
+
+  std::pair<omega_t, ablk_t> createLinearImuMatrices();
+
+  omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
+  
   std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
-  Eigen::MatrixXd calcInfoFromRobotMotion();
+
 };

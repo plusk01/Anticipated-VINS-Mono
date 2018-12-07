@@ -74,7 +74,15 @@ void FeatureSelector::processImage(const image_t& image,
   }
 
 
+  //
+  // Anticipation: Compute the Expected Information over the Horizon
+  //
 
+  // Calculate the information content from motion over the horizon (eq 15)
+  auto OmegaIMU = calcInfoFromRobotMotion();
+
+  // Add in prior information (eq 16)
+  auto Omega = addOmegaPrior(OmegaIMU);
 
   // Calculate the information content of each of the new features
   auto Delta_ells = calcInfoFromFeatures(image);
@@ -82,8 +90,10 @@ void FeatureSelector::processImage(const image_t& image,
   // Calculate the information content of each of the currently used features
   auto Delta_used_ells = calcInfoFromFeatures(image);
 
-  // Use the IMU model to propagate forward the current noise
-  auto OmegaIMU = calcInfoFromRobotMotion();
+
+  //
+  // Attention: Select a subset of features that maximizes expected information
+  //
 
   estimator_.processImage(image, header);
 
@@ -118,9 +128,76 @@ std::vector<Eigen::MatrixXd> FeatureSelector::calcInfoFromFeatures(const image_t
 
 // ----------------------------------------------------------------------------
 
-Eigen::MatrixXd FeatureSelector::calcInfoFromRobotMotion()
+omega_horizon_t FeatureSelector::calcInfoFromRobotMotion()
 {
-  return {};
+  // ** Build the large information matrix over the horizon (eq 15).
+  // 
+  // There is a sparse structure to the information matrix that we can exploit.
+  // We can calculate the horizon info. matrix in blocks. Notice that each
+  // pair of consecutive frames in the horizon create four 9x9 sub-blocks.
+  // For example, for a horizon of H=3, the first pair of images (h=1) creates
+  // a large information matrix like the following (each block is 9x9):
+  // 
+  //         |------------------------------------
+  //         | At*Ω*A |  At*Ω  |    0   |    0   |
+  //         |------------------------------------
+  //         |   Ω*A  |    Ω   |    0   |    0   |
+  //         |------------------------------------
+  //         |    0   |    0   |    0   |    0   |
+  //         |------------------------------------
+  //         |    0   |    0   |    0   |    0   |
+  //         |------------------------------------
+  //    
+  // The four non-zero sub-blocks shift along the diagonal as we loop through
+  // the horizon (i.e., for h=2 there are zeros on all the edges and for h=3
+  // the Ω is in the bottom-right corner). Note that the Ai matrix must be
+  // recomputed for each h. The Ω matrix is calculated as the inverse of
+  // the covariance in equation (52) and characterizes the noise in a
+  // preintegrated set of IMU measurements using the linear IMU model.
+
+  // TODO: Be more clever and only calculate the upper-triangular
+  //       and then transpose since this is a symmetric PSD matrix
+
+  omega_horizon_t Omega_kkH;
+
+  for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
+    // Create Ablk and Ω as explained in the appendix
+    auto mats = createLinearImuMatrices();
+
+    // convenience: select sub-blocks to add to, based on h
+    Eigen::Ref<Eigen::MatrixXd> block1 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, (h-1)*STATE_SIZE);
+    Eigen::Ref<Eigen::MatrixXd> block2 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, h*STATE_SIZE);
+    Eigen::Ref<Eigen::MatrixXd> block3 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, (h-1)*STATE_SIZE);
+    Eigen::Ref<Eigen::MatrixXd> block4 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, h*STATE_SIZE);
+
+    // At*Ω*A (top-left sub-block)
+    block1 += mats.second.transpose()*mats.first*mats.second;
+
+    // At*Ω (top-right sub-block)
+    block2 += mats.second.transpose()*mats.first;
+    
+    // Ω*A (bottom-left sub-block)
+    block3 += mats.first*mats.second;
+
+    // Ω (bottom-right sub-block)
+    block4 += mats.second;
+  }
+
+  return Omega_kkH;
+}
+
+// ----------------------------------------------------------------------------
+
+std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices()
+{
+ return std::make_pair<omega_t, ablk_t>({}, {});
+}
+
+// ----------------------------------------------------------------------------
+
+omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
+{
+  return OmegaIMU;
 }
 
 // ----------------------------------------------------------------------------
