@@ -14,37 +14,44 @@ HorizonGenerator::HorizonGenerator(ros::NodeHandle nh)
 
 // ----------------------------------------------------------------------------
 
-state_horizon_t HorizonGenerator::imu(const state_t& state_0, const state_t& state_1,
-                                        int nrImuMeasurements, double deltaImu)
+state_horizon_t HorizonGenerator::imu(
+                      const state_t& state_0, const state_t& state_1,
+                      const Eigen::Vector3d& a, const Eigen::Vector3d& w,
+                      int nrImuMeasurements, double deltaImu)
 {
   state_horizon_t state_kkH;
 
-  // x_kkH.segment<xSIZE>(0*xSIZE) = xk;
+  // start with the (yet-to-be-corrected) estimate of the current frame
+  state_kkH[0] = state_1;
 
-  // // ROS_INFO_STREAM("xk_: " << xk_.transpose());
+  // let's just assume constant bias over the horizon
+  auto Ba = state_kkH[0].first.segment<3>(xB_A);
 
-  // // let's just assume constant bias over the horizon
-  // auto Ba = x_kkH.segment<3>(xB_A);
+  // we also assume a constant angular velocity during the horizon
+  auto Qimu = Utility::deltaQ(w * deltaImu);
 
-  // for (int h=1; h<=HORIZON; ++h) {
+  for (int h=1; h<=HORIZON; ++h) {
 
-  //   // use the prev frame state to initialize the current k+h frame state
-  //   x_kkH.segment<xSIZE>(h*xSIZE) = x_kkH.segment<xSIZE>((h-1)*xSIZE);
+    // use the prev frame state to initialize the current k+h frame state
+    state_kkH[h] = state_kkH[h-1];
 
-  //   // we assume constant angular acceleration between image frames
-  //   // Qk_[h] = 
+    // constant acceleration IMU propagation
+    for (int i=0; i<nrImuMeasurements; ++i) {
 
-  //   // constant acceleration IMU propagation
-  //   for (int i=0; i<nrImuMeasurements; ++i) {
+      // propagate attitude with incremental IMU update
+      state_kkH[h].second = state_kkH[h].second * Qimu;
 
-  //     // vi, eq (11)
-  //     // x_kkH.segment<3>(h*xSIZE + xVEL) += (gravity + Qk_*(ak_ - Ba))*deltaImu;
+      // Convenience: quat from world to current IMU-rate body pose
+      const auto& q_hi = state_kkH[h].second;
+
+      // vi, eq (11)
+      state_kkH[h].first.segment<3>(xVEL) += (gravity + q_hi*(a - Ba))*deltaImu;
       
-  //     // ti, second equality in eq (12)
-  //     x_kkH.segment<3>(h*xSIZE + xPOS) += x_kkH.segment<3>(h*xSIZE + xVEL)*deltaImu;// + 0.5*gravity*deltaImu*deltaImu + 0.5*(Qk_*(ak_ - Ba))*deltaImu*deltaImu;
-  //   }
+      // ti, second equality in eq (12)
+      state_kkH[h].first.segment<3>(xPOS) += state_kkH[h].first.segment<3>(xVEL)*deltaImu + 0.5*gravity*deltaImu*deltaImu + 0.5*(q_hi*(a - Ba))*deltaImu*deltaImu;
+    }
 
-  // }
+  }
 
   return state_kkH;
 }

@@ -24,7 +24,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: tracked image
+    SyncSource: ""
   - Class: rviz/Displays
     Help Height: 78
     Name: Displays
@@ -137,7 +137,7 @@ Visualization Manager:
           Marker Topic: /vins_estimator/camera_pose_visual
           Name: camera_visual
           Namespaces:
-            CameraPoseVisualization: true
+            {}
           Queue Size: 100
           Value: true
         - Alpha: 1
@@ -205,22 +205,13 @@ Visualization Manager:
           Frame Timeout: 15
           Frames:
             All Enabled: true
-            body:
-              Value: true
-            camera:
-              Value: true
-            world:
-              Value: true
           Marker Scale: 1
           Name: TF
           Show Arrows: true
           Show Axes: true
           Show Names: true
           Tree:
-            world:
-              body:
-                camera:
-                  {}
+            {}
           Update Interval: 0
           Value: true
       Enabled: true
@@ -458,7 +449,7 @@ Visualization Manager:
           Enabled: true
           Head Diameter: 0.300000012
           Head Length: 0.200000003
-          Length: 0.300000012
+          Length: 0.200000003
           Line Style: Lines
           Line Width: 0.0299999993
           Name: propagated horizon
@@ -467,8 +458,8 @@ Visualization Manager:
             Y: 0
             Z: 0
           Pose Color: 255; 85; 255
-          Pose Style: None
-          Radius: 0.0299999993
+          Pose Style: Axes
+          Radius: 0.0199999996
           Shaft Diameter: 0.100000001
           Shaft Length: 0.100000001
           Topic: /vins_estimator/horizon

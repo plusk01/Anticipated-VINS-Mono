@@ -324,10 +324,13 @@ void process()
             // Intelligent Feature Selection
             //
 
+            // unbias gyro
+            auto un_gyr = gyr_0 - tmp_Bg;
+
             // pass information along
             f_selector->setCurrentStateFromImuPropagation(latest_time,
                         img_msg->header.stamp.toSec(), tmp_P, tmp_Q,
-                        tmp_V, acc_0, tmp_Ba);
+                        tmp_V, acc_0, un_gyr, tmp_Ba);
 
             int nrImuMeasurements = static_cast<int>(measurement.first.size());
             f_selector->processImage(image, img_msg->header, nrImuMeasurements);

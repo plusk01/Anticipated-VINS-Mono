@@ -14,7 +14,7 @@ void FeatureSelector::setCurrentStateFromImuPropagation(
     double imuTimestamp, double imageTimestamp,
     const Eigen::Vector3d& P, const Eigen::Quaterniond& Q,
     const Eigen::Vector3d& V, const Eigen::Vector3d& a,
-    const Eigen::Vector3d& Ba)
+    const Eigen::Vector3d& w, const Eigen::Vector3d& Ba)
 {
   //
   // State of previous frame
@@ -37,8 +37,10 @@ void FeatureSelector::setCurrentStateFromImuPropagation(
   state_k_.first.segment<3>(xB_A) = Ba;
   state_k_.second = Q;
 
-  // the last accelerometer measurement
-  ak_ = ((Eigen::Vector3d() << 9.17739, 0.0735499,  -2.61511).finished()); //a;
+  // the last IMU measurement
+  // ak_ = ((Eigen::Vector3d() << 9.17739, 0.0735499,  -2.61511).finished()); //a;
+  ak_ = a;
+  wk_ = w;
 
   // ROS_INFO_STREAM("accel: " << a.transpose());
 }
@@ -103,7 +105,7 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
   // generate the horizon based on the requested scheme
   if (horizonGeneration_ == IMU) {
-    return hgen_->imu(state_0_, state_k_, nrImuMeasurements, deltaImu);
+    return hgen_->imu(state_0_, state_k_, ak_, wk_, nrImuMeasurements, deltaImu);
   } else { //if (horizonGeneration_ == GT) {
     return hgen_->groundTruth(state_0_, state_k_, deltaFrame);
   }

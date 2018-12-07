@@ -46,13 +46,11 @@ public:
    * @param[in]  a     Linear accel at time k    (a_WB)
    * @param[in]  Ba    Accel bias at time k      (in sensor frame)
    */
-  void setCurrentStateFromImuPropagation(double imuTimestamp,
-                                         double imgTimestamp,
-                                         const Eigen::Vector3d& P,
-                                         const Eigen::Quaterniond& Q,
-                                         const Eigen::Vector3d& V,
-                                         const Eigen::Vector3d& a,
-                                         const Eigen::Vector3d& Ba);
+  void setCurrentStateFromImuPropagation(
+          double imuTimestamp, double imageTimestamp,
+          const Eigen::Vector3d& P, const Eigen::Quaterniond& Q,
+          const Eigen::Vector3d& V, const Eigen::Vector3d& a,
+          const Eigen::Vector3d& w, const Eigen::Vector3d& Ba);
 
 private:
   // ROS stuff
@@ -64,13 +62,14 @@ private:
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
-  horizon_generation_t horizonGeneration_ = GT;
+  horizon_generation_t horizonGeneration_ = IMU;
   std::unique_ptr<HorizonGenerator> hgen_;
 
 
   state_t state_0_; ///< state of last frame (from backend)
   state_t state_k_; ///< state of current frame (from IMU prop)
-  Eigen::Vector3d ak_;
+  Eigen::Vector3d ak_; ///< latest accel measurement (from IMU)
+  Eigen::Vector3d wk_; ///< latest ang. vel. measurement (from IMU)
 
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);

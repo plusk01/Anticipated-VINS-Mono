@@ -14,6 +14,7 @@
 
 #include "state_defs.h"
 #include "csviterator.h"
+#include "utility.h"
 
 class HorizonGenerator
 {
@@ -21,7 +22,9 @@ public:
   HorizonGenerator(ros::NodeHandle nh);
   ~HorizonGenerator() = default;
 
-  state_horizon_t imu(const state_t& state_0, const state_t& state_1, int nrImuMeasurements, double deltaImu);
+  state_horizon_t imu(const state_t& state_0, const state_t& state_1,
+                      const Eigen::Vector3d& a, const Eigen::Vector3d& w,
+                      int nrImuMeasurements, double deltaImu);
 
   /**
    * @brief      Generate horizon from ground truth data
