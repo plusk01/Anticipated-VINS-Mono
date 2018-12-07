@@ -22,6 +22,8 @@ public:
   HorizonGenerator(ros::NodeHandle nh);
   ~HorizonGenerator() = default;
 
+  void setParameters(const Eigen::Matrix3d& R, const Eigen::Vector3d& t);
+
   /**
    * @brief      Generate horizon using constant acceleration IMU model
    *
@@ -61,6 +63,10 @@ private:
   // ROS stuff
   ros::NodeHandle nh_;
   ros::Publisher pub_horizon_;
+
+  // extrinsic parameters: camera frame w.r.t imu frame
+  Eigen::Quaterniond q_imu2cam_;
+  Eigen::Vector3d t_imu2cam_;
 
   // struct and container for ground truth data read from CSV
   typedef struct {
