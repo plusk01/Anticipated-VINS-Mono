@@ -95,7 +95,7 @@ private:
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
 
-  std::vector<Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> calcInfoFromFeatures(
+  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> calcInfoFromFeatures(
     const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions,
     Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU);
   /**
