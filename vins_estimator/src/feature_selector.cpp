@@ -141,27 +141,15 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
 std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
 {
-  // need to estimate depth better
-  // need to fix it such that iterating through feature-id's not feature numbers
+  //initialize the return map, delta_ells
   std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> delta_ells;
-  // project the u,v pixel projection of the feature on the frames over the horizon
-  // k to to k+H, and check if still visibile in frame. The returned matrix will
-  // be formatted to have u in the first column, v in the second, and a visibility
-  // check (1 if visible, 0 if not) in the third column
-  //        /--------------
-  //        | u1 | v1 | 0 |
-  //        | u2 | v2 | 1 |
-  //        | u3 | v3 | 1 |
-  //        |...| ...| ...| (continue for all features in curent frame)
-  // Eigen::Ref<Eigen::MatrixXd> projectedPixels = projectFeaturePixelOverHorizon(x_kkH);
+  // pull out information we will need for visibility check
   int maxU = imageDimensions[0]; // max u pixel to stay in frame
   int maxV = imageDimensions[1]; // max v pixel to stay in frame
-  // Eigen::MatrixXd featureBearingVectors(numFeatures,3);
-  std::map<int,Eigen::Vector3d> featureBearingVectors;
-  std::map<int,Eigen::Vector3d> worldFeatureBearingVectors;
-  // Eigen::MatrixXd worldFeatureBearingVectors(numFeatures,3);
-  // for (int f = 0; f<numFeatures; ++f)
-  int camera_id = 0; // PLACEHOLDER, pipe in from...?
+  std::map<int,Eigen::Vector3d> featureBearingVectors; // feature bearing vector w.r.t camera
+  std::map<int,Eigen::Vector3d> worldFeatureBearingVectors; // feature bearing vectors w.r.t origin
+  int camera_id = 0;
+  // iterate over all features and make bearing vectors for each feature
   for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
    feature!=image.end(); ++feature)
   {
@@ -169,28 +157,31 @@ std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelect
     featureBearingVectors[feature_id] << feature->second[camera_id].second(0,0),
                                    feature->second[camera_id].second(1,0),
                                    feature->second[camera_id].second(2,0);
-    // featureBearingVectors[feature_id] << image.at(feature_id)[camera_id].second(0,0),
-    //                                image.at(feature_id)[camera_id].second(1,0),
-    //                                image.at(feature_id)[camera_id].second(2,0);
-    // TODO : check if already normalized or not; should we be normalizing?
     featureBearingVectors[feature_id].normalized();
     // TODO: Make a better depth guess
   }
+  // iterate over all features over horizon and find Delta_ells
+  // To do this, we will
+  // ******** project pixel locations from states horizon
+  // ******** check visibility on whether feature is expected to stay in the frame
   for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
    feature!=image.end(); ++feature)
-  // for (int f = 0; f<numFeatures; ++f)
   {
     int feature_id = feature->first;
-    // for each feature, reinitialize pixelProjection variable
+    // for each feature, reinitialize
+    // ******* pixelProjection (vector consists of u,v, and visibility check flag (1 = visible, 0 = not visible))
+    // ******* p_lc (position of landmark w.r.t new camera position)
     Eigen::MatrixXd pixelProjection(3,HORIZON);
-    worldFeatureBearingVectors[feature_id] = featureBearingVectors[feature_id] + state_kkH[0].first.segment<3>(xPOS);
     Eigen::MatrixXd p_lc(3,HORIZON);
+    // find feature bearing vector at time k = 0 in the world frame
+    worldFeatureBearingVectors[feature_id] = featureBearingVectors[feature_id] + state_kkH[0].first.segment<3>(xPOS);
     for (int h=0; h<HORIZON; ++h)
     {
+      // calculate p_lc and pizelProjection
       p_lc.col(h) = worldFeatureBearingVectors[feature_id] - state_kkH[h].first.segment<3>(xPOS);
       pixelProjection(0,h) = cameraCalibration(0,0)*(p_lc(0,h)/p_lc(2,h)) + cameraCalibration(0,2);// u pixel projection
       pixelProjection(1,h) = cameraCalibration(1,1)*(p_lc(1,h)/p_lc(2,h)) + cameraCalibration(1,2);// v pixel projection
-      // check if projected pixel location is within field of view of the camera
+      // Visibility check
       if (pixelProjection(0,h) > 0 && pixelProjection(1,h) > 0 && pixelProjection(0,h) < maxU && pixelProjection(1,h) < maxV)
       {
         pixelProjection(2,h) = 1;
@@ -200,10 +191,11 @@ std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelect
         pixelProjection(2,h) = 0;
       }
     }
-    // initialize F to have as many rows as visibile pixels
+    // initialize F,E to have as many blocks as visible pixels for this feature
     Eigen::MatrixXd F = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),9*(HORIZON+1));
     Eigen::MatrixXd E = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),3);
-    int visible_counter = 0;
+    int visibleCounter = 0;
+    // calculate F,E from Eq. 20 in paper
     for (int h=1; h<=HORIZON; ++h)
     {
       if (pixelProjection(2,h) == 1)
@@ -218,24 +210,16 @@ std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelect
         Eigen::Quaterniond qh = state_kkH[h].second;
         qh.normalize();
         Eigen::Matrix3d Rh = qh.toRotationMatrix();
-        F.block<3,3>(3*visible_counter,9*h) = u_klSkew*((Rh*RcamIMU).transpose());
-        E.block<3,3>(3*visible_counter,0)= -u_klSkew*((Rh*RcamIMU).transpose());
-        visible_counter++;
+        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*((Rh*RcamIMU).transpose());
+        E.block<3,3>(3*visibleCounter,0)= -u_klSkew*((Rh*RcamIMU).transpose());
+        visibleCounter++;
       }
     }
+    // Calculate delta_ells from Eq. 23 in paper
     delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
   }
   return delta_ells;
 }
-// ----------------------------------------------------------------------------
-// Eigen::Ref<Eigen::MatrixXd> FeatureSelector::projectFeaturePixelOverHorizon(const image_t image&)
-// {
-//   std::cout << numFeatures <<std::endl;
-//   Eigen::MatrixXd p_lo = Eigen::MatrixXd::Identity(numFeatures, 3); // TODO: we need to estimate the real feature location for each feature. Currently a placeholder...
-//
-//   return p_lo;
-// }
-// ----------------------------------------------------------------------------
 
 omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
         const state_horizon_t& x_kkH, double nrImuMeasurements, double deltaImu)
