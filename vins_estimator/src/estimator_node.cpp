@@ -331,10 +331,21 @@ void process()
             f_selector->setNextStateFromImuPropagation(img_msg->header.stamp.toSec(),
                         tmp_P, tmp_Q, tmp_V, acc_0, un_gyr, tmp_Ba);
 
+            // number of IMU measurements between last and current frames
             int nrImuMeasurements = static_cast<int>(measurement.first.size());
-            f_selector->processImage(image, img_msg->header, nrImuMeasurements);
+
+            // how many features (at most) to select?
+            constexpr int kappa = 20;
+
+            // select the best features, removing poor choices from image.
+            TicToc t_fsel;
+            f_selector->select(image, kappa, img_msg->header, nrImuMeasurements);
+            ROS_INFO_STREAM("Feature selection took " << t_fsel.toc() << " ms");
 
             // ----------------------------------------------------------------
+
+            // run vins estimator on selected subset of features
+            estimator.processImage(image, img_msg->header);
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);

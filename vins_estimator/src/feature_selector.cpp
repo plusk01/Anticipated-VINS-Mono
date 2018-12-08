@@ -56,9 +56,8 @@ void FeatureSelector::setNextStateFromImuPropagation(
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::processImage(const image_t& image,
-                                   const std_msgs::Header& header,
-                                   int nrImuMeasurements)
+void FeatureSelector::select(image_t& image, int kappa, 
+        const std_msgs::Header& header, int nrImuMeasurements)
 {
   //
   // Timing information
@@ -92,10 +91,10 @@ void FeatureSelector::processImage(const image_t& image,
   //
 
   // Calculate the information content from motion over the horizon (eq 15)
-  auto OmegaIMU = calcInfoFromRobotMotion(state_kkH, nrImuMeasurements, deltaImu);
+  auto OmegaIMU_kkH = calcInfoFromRobotMotion(state_kkH, nrImuMeasurements, deltaImu);
 
   // Add in prior information (eq 16)
-  auto Omega = addOmegaPrior(OmegaIMU);
+  auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
   auto Delta_ells = calcInfoFromFeatures(image);
@@ -108,8 +107,11 @@ void FeatureSelector::processImage(const image_t& image,
   // Attention: Select a subset of features that maximizes expected information
   //
 
-  estimator_.processImage(image, header);
+  // removes poor feature choices from image
+  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
 
+
+  // for next iteration
   frameTime_k = header.stamp.toSec();
 }
 
@@ -134,7 +136,7 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
 // ----------------------------------------------------------------------------
 
-std::vector<Eigen::MatrixXd> FeatureSelector::calcInfoFromFeatures(const image_t& image)
+std::vector<omega_horizon_t> FeatureSelector::calcInfoFromFeatures(const image_t& image)
 {
   return {};
 }
@@ -282,6 +284,16 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
 omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 {
   return OmegaIMU;
+}
+
+// ----------------------------------------------------------------------------
+
+void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
+          const omega_horizon_t& Omega_kkH,
+          const std::vector<omega_horizon_t>& Delta_ells,
+          const std::vector<omega_horizon_t>& Delta_used_ells)
+{
+
 }
 
 // ----------------------------------------------------------------------------
