@@ -21,36 +21,37 @@ void FeatureSelector::setParameters(double accVar, double accBiasVar)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::setCurrentStateFromImuPropagation(
-    double imuTimestamp, double imageTimestamp,
+void FeatureSelector::setNextStateFromImuPropagation(
+    double imageTimestamp,
     const Eigen::Vector3d& P, const Eigen::Quaterniond& Q,
     const Eigen::Vector3d& V, const Eigen::Vector3d& a,
     const Eigen::Vector3d& w, const Eigen::Vector3d& Ba)
 {
   //
-  // State of previous frame
+  // State of previous frame (at the end of the fixed-lag window)
   //
-
-  state_0_.first.coeffRef(xTIMESTAMP) = state_k_.first.coeff(xTIMESTAMP);
-  state_0_.first.segment<3>(xPOS) = estimator_.Ps[WINDOW_SIZE];
-  state_0_.first.segment<3>(xVEL) = estimator_.Vs[WINDOW_SIZE];
-  state_0_.first.segment<3>(xB_A) = estimator_.Bas[WINDOW_SIZE];
-  state_0_.second = estimator_.Rs[WINDOW_SIZE];
-
+  
+  // TODO: Why is this not WINDOW_SIZE-1?
+  state_k_.first.coeffRef(xTIMESTAMP) = state_k1_.first.coeff(xTIMESTAMP);
+  state_k_.first.segment<3>(xPOS) = estimator_.Ps[WINDOW_SIZE];
+  state_k_.first.segment<3>(xVEL) = estimator_.Vs[WINDOW_SIZE];
+  state_k_.first.segment<3>(xB_A) = estimator_.Bas[WINDOW_SIZE];
+  state_k_.second = estimator_.Rs[WINDOW_SIZE];
+  
   //
   // (yet-to-be-corrected) state of current frame
   //
 
   // set the propagated-forward state of the current frame
-  state_k_.first.coeffRef(xTIMESTAMP) = imageTimestamp;
-  state_k_.first.segment<3>(xPOS) = P;
-  state_k_.first.segment<3>(xVEL) = V;
-  state_k_.first.segment<3>(xB_A) = Ba;
-  state_k_.second = Q;
+  state_k1_.first.coeffRef(xTIMESTAMP) = imageTimestamp;
+  state_k1_.first.segment<3>(xPOS) = P;
+  state_k1_.first.segment<3>(xVEL) = V;
+  state_k1_.first.segment<3>(xB_A) = Ba;
+  state_k1_.second = Q;
 
-  // the last IMU measurement
-  ak_ = a;
-  wk_ = w;
+  // the latest IMU measurement
+  ak1_ = a;
+  wk1_ = w;
 }
 
 // ----------------------------------------------------------------------------
@@ -64,10 +65,10 @@ void FeatureSelector::processImage(const image_t& image,
   //
 
   // frame time of previous image
-  static double lastFrameTime_ = header.stamp.toSec();
+  static double frameTime_k = header.stamp.toSec();
 
   // time difference between last frame and current frame
-  double deltaF = header.stamp.toSec() - lastFrameTime_;
+  double deltaF = header.stamp.toSec() - frameTime_k;
 
   // calculate the IMU sampling rate of the last frame-to-frame meas set
   double deltaImu = deltaF / nrImuMeasurements;
@@ -77,7 +78,8 @@ void FeatureSelector::processImage(const image_t& image,
   // Future State Generation
   //
 
-  // We will need to know the state at each frame in the horizon, k:k+H
+  // We will need to know the state at each frame in the horizon, k:k+H.
+  // Note that this includes the current optimized state, xk
   auto state_kkH = generateFutureHorizon(header, nrImuMeasurements, deltaImu, deltaF);
 
   if (visualize_) {
@@ -115,7 +117,7 @@ void FeatureSelector::processImage(const image_t& image,
 
   estimator_.processImage(image, header);
 
-  lastFrameTime_ = header.stamp.toSec();
+  frameTime_k = header.stamp.toSec();
 }
 
 // ----------------------------------------------------------------------------
@@ -130,9 +132,9 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
   // generate the horizon based on the requested scheme
   if (horizonGeneration_ == IMU) {
-    return hgen_->imu(state_0_, state_k_, ak_, wk_, nrImuMeasurements, deltaImu);
+    return hgen_->imu(state_k_, state_k1_, ak1_, wk1_, nrImuMeasurements, deltaImu);
   } else { //if (horizonGeneration_ == GT) {
-    return hgen_->groundTruth(state_0_, state_k_, deltaFrame);
+    return hgen_->groundTruth(state_k_, state_k1_, deltaFrame);
   }
 
 }
@@ -222,7 +224,7 @@ std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelect
 }
 
 omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
-        const state_horizon_t& x_kkH, double nrImuMeasurements, double deltaImu)
+        const state_horizon_t& state_kkH, double nrImuMeasurements, double deltaImu)
 {
   // ** Build the large information matrix over the horizon (eq 15).
   //
@@ -256,12 +258,11 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
 
   for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
 
-    // convenience: frames (i, j) are a consecutive pair in horizon
-    const auto& Qi = x_kkH[h-1].second;
-    const auto& Qj = x_kkH[h].second;
+    // convenience: frames (i, j) are a consecutive pair in horizon    
+    const auto& Qi = state_kkH[h-1].second;
+    const auto& Qj = state_kkH[h].second;
 
     // Create Ablk and Ω as explained in the appendix
-    // ROS_WARN_STREAM("Horizon " << h << " (nr IMU: " << nrImuMeasurements << ")");
     auto mats = createLinearImuMatrices(Qi, Qj, nrImuMeasurements, deltaImu);
 
     // convenience: select sub-blocks to add to, based on h
@@ -283,11 +284,6 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     // Ω (bottom-right sub-block)
     block4 += mats.second;
   }
-
-  // ROS_INFO_STREAM("Omega_kkH:\n" << Omega_kkH);
-
-  // Eigen::EigenSolver<omega_horizon_t> es(Omega_kkH);
-  // ROS_WARN_STREAM("eig: " << es.eigenvalues().real().transpose());
 
   return Omega_kkH;
 }
@@ -360,15 +356,7 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
   Ablk.block<3, 3>(0, 6) = Nij;
   Ablk.block<3, 3>(3, 6) = Mij;
 
-  // // https://stackoverflow.com/a/33577450/2392520
-  // Eigen::JacobiSVD<omega_t> svd(covImu);
-  // double cond = svd.singularValues()(0) / svd.singularValues()(svd.singularValues().size()-1);
-
-  // ROS_INFO_STREAM("covImu ("<<cond<<"):\n" << covImu);
-  // ROS_INFO_STREAM("covImu^-1 ("<<cond<<"):\n" << covImu.inverse());
-  // ROS_INFO_STREAM("\nAblk:\n" << Ablk);
-
- return std::make_pair(covImu.inverse(), Ablk);
+  return std::make_pair(covImu.inverse(), Ablk);
 }
 
 // ----------------------------------------------------------------------------
