@@ -29,8 +29,12 @@ state_horizon_t HorizonGenerator::imu(
 {
   state_horizon_t state_kkH;
 
-  // start with the (yet-to-be-corrected) estimate of the current frame
-  state_kkH[0] = state_1;
+  // initialize with the the last frame's pose (tail of optimizer window)
+  state_kkH[0] = state_0;
+
+  // Additionally, since we already have an IMU propagated estimate
+  // (yet-to-be-corrected) of the current frame, we will start there.
+  state_kkH[1] = state_1;
 
   // let's just assume constant bias over the horizon
   auto Ba = state_kkH[0].first.segment<3>(xB_A);
@@ -38,9 +42,9 @@ state_horizon_t HorizonGenerator::imu(
   // we also assume a constant angular velocity during the horizon
   auto Qimu = Utility::deltaQ(w * deltaImu);
 
-  for (int h=1; h<=HORIZON; ++h) {
+  for (int h=2; h<=HORIZON; ++h) { // NOTE: we already have k+1.
 
-    // use the prev frame state to initialize the current k+h frame state
+    // use the prev frame state to initialize the k+h frame state
     state_kkH[h] = state_kkH[h-1];
 
     // constant acceleration IMU propagation
@@ -82,34 +86,33 @@ state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0,
                           truth_[seek_idx_++].timestamp <= timestamp);
   int idx = seek_idx_-1;
 
+  // initialize state horizon structure with [xk]. The rest are future states.
+  state_kkH[0].first = state_0.first;
+  state_kkH[0].second = state_0.second;
+
   // ground-truth pose of previous frame
   Eigen::Vector3d prevP = truth_[idx].p;
   Eigen::Quaterniond prevQ = truth_[idx].q;
 
   // predict pose of camera for frames k to k+H
-  for (int h=0; h<=HORIZON; ++h) {
+  for (int h=1; h<=HORIZON; ++h) {
 
     // while the inertial frame of ground truth and vins will be different,
     // it is not a problem because we only care about _relative_ transformations.
     auto gtPose = getNextFrameTruth(idx, deltaFrame);
 
-    // Orientation of frame k+h w.r.t. orientation of frame k+h-1
+    // Ground truth orientation of frame k+h w.r.t. orientation of frame k+h-1
     auto relQ = prevQ.inverse() * gtPose.q;
 
-    // Position of frame k+h w.r.t. position of frame k+h-1
+    // Ground truth position of frame k+h w.r.t. position of frame k+h-1
     auto relP = gtPose.q.inverse() * (gtPose.p - prevP);
 
 
     // "predict" where the current frame in the horizon (k+h)
     // will be by applying this relative rotation to
     // the previous frame (k+h-1)
-    if (h == 0) {
-      state_kkH[0].first.segment<3>(xPOS) = state_0.first.segment<3>(xPOS) + state_0.second * relP;
-      state_kkH[0].second = state_0.second * relQ;
-    } else {
-      state_kkH[h].first.segment<3>(xPOS) = state_kkH[h-1].first.segment<3>(xPOS) + state_kkH[h-1].second * relP;
-      state_kkH[h].second = state_kkH[h-1].second * relQ;
-    }
+    state_kkH[h].first.segment<3>(xPOS) = state_kkH[h-1].first.segment<3>(xPOS) + state_kkH[h-1].second * relP;
+    state_kkH[h].second = state_kkH[h-1].second * relQ;
 
     // for next iteration
     prevP = gtPose.p;
@@ -128,7 +131,7 @@ void HorizonGenerator::visualize(const std_msgs::Header& header,
   path.header = header;
   path.header.frame_id = "world";
 
-  // include the (the to-be-corrected) current state, xk (i.e., h=0)
+  // include the current state, xk (i.e., h=0)
   for (int h=0; h<=HORIZON; ++h) {
 
     // for convenience

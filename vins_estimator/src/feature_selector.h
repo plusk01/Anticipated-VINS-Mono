@@ -39,20 +39,19 @@ public:
   void processImage(const image_t& image, const std_msgs::Header& header, int nrImuMeasurements);
 
   /**
-   * @brief      Provides the (yet-to-be-corrected) pose estimate at time k,
-   *             calculated via IMU propagation.
+   * @brief      Provides the (yet-to-be-corrected) pose estimate
+   *             for frame k+1, calculated via IMU propagation.
    *
-   * @param[in]  imuT  Pose time, stamped with IMU clock
-   * @param[in]  imgT  Pose time, stamped with image clock
-   * @param[in]  P     Position at time k        (P_WB)
-   * @param[in]  Q     Orientation at time k     (Q_WB)
-   * @param[in]  V     Linear velocity at time k (V_WB)
-   * @param[in]  a     Linear accel at time k    (a_WB)
-   * @param[in]  w     Angular vel at time k     (w_WB)
-   * @param[in]  Ba    Accel bias at time k      (in sensor frame)
+   * @param[in]  imgT  Image clock stamp of frame k+1
+   * @param[in]  P     Position at time k+1        (P_WB)
+   * @param[in]  Q     Orientation at time k+1     (Q_WB)
+   * @param[in]  V     Linear velocity at time k+1 (V_WB)
+   * @param[in]  a     Linear accel at time k+1    (a_WB)
+   * @param[in]  w     Angular vel at time k+1     (w_WB)
+   * @param[in]  Ba    Accel bias at time k+1      (in sensor frame)
    */
-  void setCurrentStateFromImuPropagation(
-          double imuTimestamp, double imageTimestamp,
+  void setNextStateFromImuPropagation(
+          double imageTimestamp,
           const Eigen::Vector3d& P, const Eigen::Quaterniond& Q,
           const Eigen::Vector3d& V, const Eigen::Vector3d& a,
           const Eigen::Vector3d& w, const Eigen::Vector3d& Ba);
@@ -75,20 +74,20 @@ private:
   std::unique_ptr<HorizonGenerator> hgen_;
 
   // state
-  state_t state_0_; ///< state of last frame (from backend)
-  state_t state_k_; ///< state of current frame (from IMU prop)
-  Eigen::Vector3d ak_; ///< latest accel measurement (from IMU)
-  Eigen::Vector3d wk_; ///< latest ang. vel. measurement (from IMU)
+  state_t state_k_;     ///< state of last frame, k (from backend)
+  state_t state_k1_;    ///< state of current frame, k+1 (from IMU prop)
+  Eigen::Vector3d ak1_; ///< latest accel measurement, k+1 (from IMU)
+  Eigen::Vector3d wk1_; ///< latest ang. vel. measurement, k+1 (from IMU)
 
   /**
-   * @brief      Generate a future state horizon
+   * @brief      Generate a future state horizon from k+1 to k+H
    *
-   * @param[in]  header             The header of the current image frame
+   * @param[in]  header             The header of the current image frame (k+1)
    * @param[in]  nrImuMeasurements  Num IMU measurements from prev to current frame
    * @param[in]  deltaImu           Sampling period of IMU
    * @param[in]  deltaFrame         Sampling period of image frames
    *
-   * @return     a state horizon
+   * @return     a state horizon that includes the current state, [xk xk+1:k+H]
    */
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
