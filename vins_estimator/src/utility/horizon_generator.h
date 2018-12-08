@@ -27,8 +27,8 @@ public:
   /**
    * @brief      Generate horizon using constant acceleration IMU model
    *
-   * @param[in]  state_0            The state of the prev frame (k-1)
-   * @param[in]  state_1            The state of the current (yet-to-be-corrected) frame (k)
+   * @param[in]  state_0            The state of the prev frame (k)
+   * @param[in]  state_1            The state of the current (yet-to-be-corrected) frame (k+1)
    * @param[in]  a                  Latest IMU acceleration measurement
    * @param[in]  w                  Latest IMU angular vel measurement
    * @param[in]  nrImuMeasurements  Number of IMU measurements from prev frame to now
@@ -43,8 +43,8 @@ public:
   /**
    * @brief      Generate horizon from ground truth data
    *
-   * @param[in]  state_0     The state of the previous frame (k-1)
-   * @param[in]  state_1     The state of the current (yet-to-be-corrected) frame (k)
+   * @param[in]  state_0     The state of the previous frame (k)
+   * @param[in]  state_1     The state of the current (yet-to-be-corrected) frame (k+1)
    * @param[in]  deltaFrame  time between previous two img frames (secs)
    *
    * @return     a state horizon
