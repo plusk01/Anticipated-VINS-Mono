@@ -92,7 +92,8 @@ private:
    */
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
-  
+
+  std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration);
   /**
    * @brief      Calculate the expected info gain from robot motion
    *
@@ -121,7 +122,5 @@ private:
       double nrImuMeasurements, double deltaImu);
 
   omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
-  
-  std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
 
 };
