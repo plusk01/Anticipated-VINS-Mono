@@ -12,6 +12,7 @@
 #include <Eigen/Dense>
 #include <Eigen/SVD>
 
+#include "utility/utility.h"
 #include "utility/state_defs.h"
 #include "utility/horizon_generator.h"
 
@@ -65,6 +66,10 @@ private:
   // IMU parameters. TODO: Check if these are/should be discrete
   double accVarDTime_ = 0.01;
   double accBiasVarDTime_ = 0.0001;
+
+  // which metric to use
+  typedef enum { LOGDET, MINEIG } metric_t;
+  metric_t metric_ = LOGDET;
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
@@ -126,4 +131,19 @@ private:
           const std::vector<omega_horizon_t>& Delta_ells,
           const std::vector<omega_horizon_t>& Delta_used_ells);
 
+  std::vector<std::pair<int,double>> sortedUpperBounds(
+      const image_t& subset, const omega_horizon_t& Omega,
+      const std::vector<omega_horizon_t>& Delta_ells);
+
+  double logDet(const omega_horizon_t& Omega,
+                const omega_horizon_t& Delta_ell);
+
+  double logDetUB(const omega_horizon_t& Omega,
+                  const omega_horizon_t& Delta_ell);
+
+  double minEig(const omega_horizon_t& Omega,
+                const omega_horizon_t& Delta_ell);
+
+  double minEigUB(const omega_horizon_t& Omega,
+                  const omega_horizon_t& Delta_ell);
 };

@@ -293,7 +293,67 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
           const std::vector<omega_horizon_t>& Delta_ells,
           const std::vector<omega_horizon_t>& Delta_used_ells)
 {
+  // Combine motion information with information from features that are already
+  // being used in the VINS-Mono optimization backend
+  omega_horizon_t Omega = Omega_kkH;
+  for (const auto& Delta : Delta_used_ells) {
+    Omega += Delta;
+  }
 
+  // subset of most informative features
+  image_t subset;
+
+  // select the indices of the best features
+  for (int i=0; i<kappa; ++i) {
+
+    // compute upper bounds
+    auto U = sortedUpperBounds(subset, Omega, Delta_ells);
+
+  }
+
+  // return the subset
+  subset.swap(image);
+}
+
+// ----------------------------------------------------------------------------
+
+std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
+    const image_t& subset, const omega_horizon_t& Omega,
+    const std::vector<omega_horizon_t>& Delta_ells)
+{
+  return {};
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::logDet(const omega_horizon_t& Omega,
+                               const omega_horizon_t& Delta_ell)
+{
+  return Utility::logdet(Omega + Delta_ell, true);
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::logDetUB(const omega_horizon_t& Omega,
+                                 const omega_horizon_t& Delta_ell)
+{
+  return 0;
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::minEig(const omega_horizon_t& Omega,
+                               const omega_horizon_t& Delta_ell)
+{
+  return 0;
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::minEigUB(const omega_horizon_t& Omega,
+                                 const omega_horizon_t& Delta_ell)
+{
+  return 0;
 }
 
 // ----------------------------------------------------------------------------
