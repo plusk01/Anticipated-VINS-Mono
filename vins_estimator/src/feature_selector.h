@@ -94,7 +94,20 @@ private:
    */
   state_horizon_t generateFutureHorizon(const std_msgs::Header& header, int nrImuMeasurements,
                                                     double deltaImu, double deltaFrame);
-  
+  /**
+   * @brief      Calculate the expected info gain from selection of the l'th feature
+   *
+   * @param[in]  image              Feature data in this image
+   * @param[in]  state_kkH          States over horizon
+   * @param[in]  imageDimensions    Dimensions of camera image
+   * @param[in]  cameraCalibration  Camera calibration matrix
+   * @param[in]  RcamIMU            Rotation of camera w.r.t IMU
+   *
+   * @return     delta_ells (information matrix for each feature in image)
+   */
+  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> calcInfoFromFeatures(
+    const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions,
+    Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU);
   /**
    * @brief      Calculate the expected info gain from robot motion
    *

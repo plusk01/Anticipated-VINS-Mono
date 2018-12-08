@@ -38,6 +38,7 @@ void FeatureSelector::setNextStateFromImuPropagation(
   state_k_.first.segment<3>(xB_A) = estimator_.Bas[WINDOW_SIZE];
   state_k_.second = estimator_.Rs[WINDOW_SIZE];
   
+
   //
   // (yet-to-be-corrected) state of current frame
   //
@@ -62,7 +63,7 @@ void FeatureSelector::select(image_t& image, int kappa,
   //
   // Timing information
   //
-  
+
   // frame time of previous image
   static double frameTime_k = header.stamp.toSec();
 
@@ -97,10 +98,17 @@ void FeatureSelector::select(image_t& image, int kappa,
   auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
-  auto Delta_ells = calcInfoFromFeatures(image);
+  Eigen::Vector2i imageDimensions;
+  imageDimensions << 640,480;
+  Eigen::Matrix3d cameraCalibration;
+  cameraCalibration << 1, 1, 1, // placeholder
+                       0, 1, 1,
+                       0, 0, 1;
+  Eigen::Matrix3d RcamIMU = Eigen::Matrix3d::Identity();
+  auto Delta_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
 
   // Calculate the information content of each of the currently used features
-  auto Delta_used_ells = calcInfoFromFeatures(image);
+  auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
 
 
   //
@@ -136,24 +144,99 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
 // ----------------------------------------------------------------------------
 
-std::vector<omega_horizon_t> FeatureSelector::calcInfoFromFeatures(const image_t& image)
+std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
 {
-  return {};
+  //initialize the return map, delta_ells
+  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> delta_ells;
+  // pull out information we will need for visibility check
+  int maxU = imageDimensions[0]; // max u pixel to stay in frame
+  int maxV = imageDimensions[1]; // max v pixel to stay in frame
+  std::map<int,Eigen::Vector3d> featureBearingVectors; // feature bearing vector w.r.t camera
+  std::map<int,Eigen::Vector3d> worldFeatureBearingVectors; // feature bearing vectors w.r.t origin
+  int camera_id = 0;
+  // iterate over all features and make bearing vectors for each feature
+  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
+   feature!=image.end(); ++feature)
+  {
+    int feature_id = feature->first;
+    featureBearingVectors[feature_id] << feature->second[camera_id].second(0,0),
+                                   feature->second[camera_id].second(1,0),
+                                   feature->second[camera_id].second(2,0);
+    featureBearingVectors[feature_id].normalized();
+    // TODO: Make a better depth guess
+  }
+  // iterate over all features over horizon and find Delta_ells
+  // To do this, we will
+  // ******** project pixel locations from states horizon
+  // ******** check visibility on whether feature is expected to stay in the frame
+  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
+   feature!=image.end(); ++feature)
+  {
+    int feature_id = feature->first;
+    // for each feature, reinitialize
+    // ******* pixelProjection (vector consists of u,v, and visibility check flag (1 = visible, 0 = not visible))
+    // ******* p_lc (position of landmark w.r.t new camera position)
+    Eigen::MatrixXd pixelProjection(3,HORIZON);
+    Eigen::MatrixXd p_lc(3,HORIZON);
+    // find feature bearing vector at time k = 0 in the world frame
+    worldFeatureBearingVectors[feature_id] = featureBearingVectors[feature_id] + state_kkH[0].first.segment<3>(xPOS);
+    for (int h=0; h<HORIZON; ++h)
+    {
+      // calculate p_lc and pizelProjection
+      p_lc.col(h) = worldFeatureBearingVectors[feature_id] - state_kkH[h].first.segment<3>(xPOS);
+      pixelProjection(0,h) = cameraCalibration(0,0)*(p_lc(0,h)/p_lc(2,h)) + cameraCalibration(0,2);// u pixel projection
+      pixelProjection(1,h) = cameraCalibration(1,1)*(p_lc(1,h)/p_lc(2,h)) + cameraCalibration(1,2);// v pixel projection
+      // Visibility check
+      if (pixelProjection(0,h) > 0 && pixelProjection(1,h) > 0 && pixelProjection(0,h) < maxU && pixelProjection(1,h) < maxV)
+      {
+        pixelProjection(2,h) = 1;
+      }
+      else
+      {
+        pixelProjection(2,h) = 0;
+      }
+    }
+    // initialize F,E to have as many blocks as visible pixels for this feature
+    Eigen::MatrixXd F = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),9*(HORIZON+1));
+    Eigen::MatrixXd E = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),3);
+    int visibleCounter = 0;
+    // calculate F,E from Eq. 20 in paper
+    for (int h=1; h<=HORIZON; ++h)
+    {
+      if (pixelProjection(2,h) == 1)
+      {
+        Eigen::Vector3d u_kl;
+        u_kl << p_lc.col(h)[0]/p_lc.col(h)[2], p_lc.col(h)[1]/p_lc.col(h)[2], 1;
+        u_kl.normalize();
+        Eigen::Matrix3d u_klSkew;
+        u_klSkew << 0,        -u_kl[2], u_kl[1],
+                    u_kl[2],  0,        u_kl[0],
+                    -u_kl[1], u_kl[0],  0;
+        Eigen::Quaterniond qh = state_kkH[h].second;
+        qh.normalize();
+        Eigen::Matrix3d Rh = qh.toRotationMatrix();
+        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*((Rh*RcamIMU).transpose());
+        E.block<3,3>(3*visibleCounter,0)= -u_klSkew*((Rh*RcamIMU).transpose());
+        visibleCounter++;
+      }
+    }
+    // Calculate delta_ells from Eq. 23 in paper
+    delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
+  }
+  return delta_ells;
 }
-
-// ----------------------------------------------------------------------------
 
 omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
         const state_horizon_t& state_kkH, double nrImuMeasurements, double deltaImu)
 {
   // ** Build the large information matrix over the horizon (eq 15).
-  // 
+  //
   // There is a sparse structure to the information matrix that we can exploit.
   // We can calculate the horizon info. matrix in blocks. Notice that each
   // pair of consecutive frames in the horizon create four 9x9 sub-blocks.
   // For example, for a horizon of H=3, the first pair of images (h=1) creates
   // a large information matrix like the following (each block is 9x9):
-  // 
+  //
   //         |------------------------------------
   //         | At*Ω*A |  At*Ω  |    0   |    0   |
   //         |------------------------------------
@@ -163,7 +246,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
   //         |------------------------------------
   //         |    0   |    0   |    0   |    0   |
   //         |------------------------------------
-  //    
+  //
   // The four non-zero sub-blocks shift along the diagonal as we loop through
   // the horizon (i.e., for h=2 there are zeros on all the edges and for h=3
   // the Ω is in the bottom-right corner). Note that the Ai matrix must be
@@ -197,7 +280,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     // At*Ω (top-right sub-block)
     auto tmp = mats.second.transpose()*mats.first;
     block2 += tmp;
-    
+
     // Ω*A (bottom-left sub-block)
     block3 += tmp.transpose();
 
@@ -250,7 +333,7 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
 
   //
   // Build cov(eta^imu_ij) -- see equation (52)
-  // 
+  //
 
   // NOTE: In paper, bottom right entry of CCt should have (j-k), not (j-k-1).
   omega_t covImu = omega_t::Zero();
@@ -267,7 +350,7 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
   //
   // Build Ablk -- see equation (50)
   //
-  
+
   Nij *= deltaImu_2;
   Mij *= deltaImu;
 
