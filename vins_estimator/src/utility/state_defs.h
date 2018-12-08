@@ -25,6 +25,9 @@ using omega_horizon_t = Eigen::Matrix<double, STATE_SIZE*(HORIZON+1), STATE_SIZE
 // Ablk -- the non-zero, non-identity matrix in equation (50)
 using ablk_t = Eigen::Matrix<double, STATE_SIZE, STATE_SIZE>;
 
+// VINS-Mono calls this an 'image', but note that it is simply a collection of features
+using image_t = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>;
+
 
 
 static const Eigen::Vector3d gravity = [] {

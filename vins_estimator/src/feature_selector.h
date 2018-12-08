@@ -12,6 +12,7 @@
 #include <Eigen/Dense>
 #include <Eigen/SVD>
 
+#include "utility/utility.h"
 #include "utility/state_defs.h"
 #include "utility/horizon_generator.h"
 
@@ -20,9 +21,6 @@
 class FeatureSelector
 {
 public:
-  // VINS-Mono calls this an 'image', but note that it is simply a collection of features
-  using image_t = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>;
-
   FeatureSelector(ros::NodeHandle nh, Estimator& estimator);
   ~FeatureSelector() = default;
 
@@ -30,13 +28,14 @@ public:
   void setParameters(double accVar, double accBiasVar);
 
   /**
-   * @brief      Process features to be selected
+   * @brief         Select the most informative subset of features to track
    *
-   * @param[in]  image   A set of calibrated pixels, indexed by feature id
-   * @param[in]  header  The header (with timestamp) of the corresponding image
-   * @param[in]  nrImus  The number of IMU measurements between the prev frame and now
+   * @param[inout]  image   A set of calibrated pixels, indexed by feature id
+   * @param[in]     kappa   The maximum cardinality of subset of selected features
+   * @param[in]     header  The header (with timestamp) of the corresponding image
+   * @param[in]     nrImus  The number of IMU measurements between the prev frame and now
    */
-  void processImage(const image_t& image, const std_msgs::Header& header, int nrImuMeasurements);
+  void select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
 
   /**
    * @brief      Provides the (yet-to-be-corrected) pose estimate
@@ -67,6 +66,10 @@ private:
   // IMU parameters. TODO: Check if these are/should be discrete
   double accVarDTime_ = 0.01;
   double accBiasVarDTime_ = 0.0001;
+
+  // which metric to use
+  typedef enum { LOGDET, MINEIG } metric_t;
+  metric_t metric_ = LOGDET;
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
@@ -121,6 +124,26 @@ private:
 
   omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
   
-  std::vector<Eigen::MatrixXd> calcInfoFromFeatures(const image_t& image);
+  std::vector<omega_horizon_t> calcInfoFromFeatures(const image_t& image);
 
+  void keepInformativeFeatures(image_t& image, int kappa,
+          const omega_horizon_t& Omega_kkH,
+          const std::vector<omega_horizon_t>& Delta_ells,
+          const std::vector<omega_horizon_t>& Delta_used_ells);
+
+  std::vector<std::pair<int,double>> sortedUpperBounds(
+      const image_t& subset, const omega_horizon_t& Omega,
+      const std::vector<omega_horizon_t>& Delta_ells);
+
+  double logDet(const omega_horizon_t& Omega,
+                const omega_horizon_t& Delta_ell);
+
+  double logDetUB(const omega_horizon_t& Omega,
+                  const omega_horizon_t& Delta_ell);
+
+  double minEig(const omega_horizon_t& Omega,
+                const omega_horizon_t& Delta_ell);
+
+  double minEigUB(const omega_horizon_t& Omega,
+                  const omega_horizon_t& Delta_ell);
 };
