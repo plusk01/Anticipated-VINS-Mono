@@ -14,7 +14,7 @@ Although sensor selection problems have been shown to be NP-hard because of the 
 \pcl{define what a submodular set function is.}
 The goal then is to identify a performance metric that exhibits submodularity and captures the accuracy of VIO.
 
-Following~\cite{Carlone2017}, we use the logdet metric to measure the volume of the estimation uncertainty ellipsoid up to a constant.
+Following~\cite{Carlone2017}, we use the logdet metric to measure the volume of the estimation uncertainty ellipsoid up to scaling.
 Let $k+1$ be the time at which we have obtained a new feature set to choose from.
 Then $\x_k$ is the optimized pose of the previous camera frame, which is the latest pose estimate from the fixed-lag smoother of the pose-graph optimization back end (see Figure~\ref{fig:meas_timeline}).
 Let $\xhatkkH\triangleq\begin{bmatrix}\x_k&\xhat_{k+1}&\cdots&\xhat_{k+H}\end{bmatrix}$ denote the stacked state vector over a horizon $H$, where $\xhat_{k+1:k+H}$ are predicted future states yet to be optimized over.
@@ -22,10 +22,10 @@ Moreover, let $\PkkH$ be the covariance of the estimation error corresponding to
 With these definitions, the logdet metric is written
 \begin{align}
 \fdet(\mathsf{S}) &= \logdet(\OmegakkH(\mathsf{S}))\\
-&= \logdet\left(\OmegabarkkH + \sum_{\ell\in\mathsf{S}}\Delta_\ell\right),
+&= \logdet\left(\OmegabarkkH + \sum_{l\in\mathsf{S}}\Delta_l\right),
 \end{align}
-where $\OmegabarkkH$ is the information matrix corresponding to the predicted robot motion over the horizon and $\Delta_\ell$ is the information matrix of the $\ell$-th feature.
-The remainder of this section discusses the computation of $\OmegabarkkH$ and $\Delta_\ell$, and the implementation of the greedy selection algorithm.
+where $\OmegabarkkH$ is the information matrix corresponding to the predicted robot motion over the horizon and $\Delta_l$ is the information matrix of the $l$-th feature.
+The remainder of this section discusses the computation of $\OmegabarkkH$ and $\Delta_l$, and the implementation of the greedy selection algorithm.
 
 \begin{figure}
 \centering
@@ -36,9 +36,13 @@ The remainder of this section discusses the computation of $\OmegabarkkH$ and $\
 
 
 % =============================================================================
-\subsection{Attention Allocation Algorithm}\label{sub:attn_algo}
+\subsection{Attention Allocation Algorithm for Feature Selection}\label{sub:attn_algo}
 
-The greedy algorithm with lazy evaluation (in code, \texttt{Attentive\_feature\_selection} function) involves the following steps. 
+The following greedy algorithm is used to approximately solve Problem~\eqref{eqn:sensor-selection-problem} by selecting $\kappa$ features that (approximately) maximize the logdet metric.
+As input, it takes the number of features to select ($\kappa$), the anticipated information from future robot motion ($\OmegabarkkH$), the anticipated information from each new landmark ($\{\Delta_l\}_{l\in\mathsf{F}}$), and the current information of existing landmarks ($\{\Delta_l'\}_{l\in\mathsf{F}'}$).
+The following subsections will discuss how to obtain these information matrices.
+
+The greedy algorithm with lazy evaluation involves the following steps. 
 \begin{enumerate}
     \item The algorithm takes in $\bar{\Omega}_{k:k+H}$ (the $9(H+1)$ x $9(H+1)$ information matrix of the future states based solely on IMU and not new features) and $\Delta_l$ (the $9(H+1)$ x $9(H+1)$ x (num of features) information matrix of the future states associated with the l'th feature).
     \item For each iteration over the number of features desired in the subset, upper bounds are computed that bounds the information gained by adding each feature to the current subset (\texttt{Upper\_bounds} function, and that list is sorted in descending order).
@@ -49,7 +53,7 @@ Now we will look in more detail at each step and how to calculate the necessary 
 
 
 % =============================================================================
-\subsection{Expected Information from Robot Motion}\label{sub:info_motion}
+\subsection{Anticipated Information from Robot Motion}\label{sub:info_motion}
 
 Finding $\bar{\Omega}_{k:k+H}$ is coded in function \texttt{Inf\_mat\_no\_features}. $\bar{\Omega}_{k:k+H}$ is given by the following equation.
 \begin{equation}
@@ -101,44 +105,117 @@ Calculating all of this allows us to solve Equation \ref{eq:omega_IMU} for $\bar
 \textbf{Question: } $\bar{\Omega}_{k:k+H}$ is not positive definite???
 
 % =============================================================================
-\subsection{Expected Information from Visual Features}\label{sub:info_features}
+\subsection{Anticipated Information from Visual Features}\label{sub:info_features}
 
-To find $\Delta_l$ (a 9(H+1) x 9(H+1) matrix), we can use the equation below for each l'th feature. 
+As before, we wish to use a linear measurement model which simplifies the nonlinear perspective projection model and allows for efficient computation.
+Let $\uhl\in\mathbb{R}^3$ be the normalized bearing vector of the $l$-th landmark with respect to the camera pose at time $h$ in the horizon (i.e., $k+1\le h\le k+H$).
+Then a linear measurement model can be written using the colinearity of the landmark vector as
 \begin{equation}
-    \Delta_l = \mathbf{F_l^TF_l - F_l^TE_l(E_l^TE_l)^{-1}E_l^TF_l}
+[\uhl]_\times((\RWCh)^\top(\pWL-\tWCh)) = \boldsymbol 0_3,
 \end{equation}
-In the implementation, $\Delta_l$ is a 9(H+1) x 9(H+1) x (num. of features) such that $\Delta_l$ for all the features are stored in one 3D array.\\
+where $\pWL$ is the position of the landmark with respect to the world frame and $(\RWCh,\tWCh)$ is the predicted pose of the camera at time $h$ in the horizon.
+Our objective is to form a linear system in state-space form that is a function of our state horizon $\xhatkkH$.
+This will allow us to think about the problem as a maximum likelihood estimation problem so that we can extract the anticipated information gain of the feature given $\xhatkkH$.
 
-To find $F_l$ and $E_l$, we must find $F_{lk}$ and $E_{lk}$, and vertically stack $F_{lk}$ and $E_{lk}$ for every frame k where feature/landmark l is visible. To find 
-$F_{lk}$ and $E_{lk}$, we use the following equation where $k = i$ to find it for every future frame from k to H, not just k. 
+Since our state at each time step in the horizon is defined as $\xhat=\begin{bmatrix}\t&\v&\ba\end{bmatrix}$, where $\t$ and $\v$ are the position and velocity of the IMU frame with respect to the world, we need our linear system to be parameterized by those quantities.
+Luckily, the extrinsic transformation between the camera and IMU is known from calibration and we can write
+\begin{equation*}
+[\uhl]_\times((\RWIh\RIC)^\top(\pWL-(\tWIh+\RWIh\tIC))) = \nhl,
+\end{equation*}
+where $\nhl\sim\mathcal{N}(0,\Sigma_\text{cam})$ introduces noise.
+Rearranging terms, we can construct the following virtual measurement model for the $l$-th landmark viewed from the $h$-th frame
+\begin{equation*}
+\zhl = [\uhl]_\times(\RWIh\RIC)^\top(\tWIh-\pWL) + \nhl,
+\end{equation*}
+where $\zhl=[\uhl]_\times(\RIC)^\top\tIC$ is the irrelevant virtual measurement.
+Written compactly, we have
+\begin{equation}\label{eqn:vision-model}
+\zhl = \F_{hl}\xhatkkH + \E_{hl}\pWL + \nhl,
+\end{equation}
+where $\F_{hl}\in\mathbb{R}^{3\times 9(H+1)}$ is a matrix of zeros except for at the $h$-th $3\times 9$ sub-block corresponding to feature visibility at camera frame $h$
+\begin{equation*}
+\F_{hl} =
+\begin{bmatrix}
+\;\cdots\;|\;[\uhl]_\times(\RWIh\RIC)^\top & \boldsymbol 0_{3\times 6}\;|\;\cdots\;
+\end{bmatrix},
+\end{equation*}
+and $\E_{hl}\in\mathbb{R}^{3\times 3}$ is
+\begin{equation*}
+\E_{hl} = -[\uhl]_\times(\RWIh\RIC)^\top.
+\end{equation*}
 
-\begin{equation}
-    F\_block_{il} = [u_{il}]_x(R_kR_{cam}^{IMU})^T
-    E_{il} = [u_{il}]_x(R_kR_{cam}^{IMU})^T
+Now that we have a linear measurement model of the calibrated feature pixel as a function of the state, our goal is to understand where in the image each landmark detected at time $k+1$ can be found.
+The intuition is if the $l$-th feature is expected to be in view over the entire future horizon, then it will have a higher amount of information than a feature that is expected to be quickly lost.
+This requires us to project the $l$-th landmark onto the image plane of the camera of the robot at future times $h$ over the horizon.
+As before, we assume that the rotations of the robot at time $h$ is known from the gyros.
+We also require the predicted positions of the robot over the horizon, which are generated by the \emph{State Horizon Generator}.
+In addition to forward simulation of the camera model at each predicted pose $\xhat_h$, a visibility check is performed to determine if the landmark could be seen by this future pose.
+The forward simulation and visibility checking is illustrated in Figure~\ref{fig:visibility}.
+
+By stacking~\eqref{eqn:vision-model} row-wise for each time step in the horizon, we have the following compact model for how the $l$-th landmark detected at $k+1$ propagates throughout the horizon
+\begin{equation}\label{eqn:vision-model-stacked}
+\zl = \F_l\xhatkkH + \E_l\pWL + \nl,
 \end{equation}
-where $F\_block_{il}$ is the 3x3 block that multiples by the state vector $x_{k:k+H}$ by the first three components of the state at each time i (the translation $t_k$ part of the state vector at each time i) such that $F_{il}$ is 3 x 9(H+1)  and $E_{il}$ is 3x3. We stack $F_{il}$ and $E_{il}$ over the $n_l$ frames where feature/landmark l is visible to obtain $F_l$ and $E_l$. Until now, we have yet to look into how to predict whether at which frames feature/landmark l is visible next and to find $u_{kl}$; we look at this next. 
-\subsubsection{Simulating future states}
-To find $u_{kl}$ and $n_l$ (frames where feature/landmark l is visible) requires simulating forward future states and the pixel projections of the features at time k at future times $k:k+H$, along with a visibility check on those pixels. \\ \\
-To simulate forward rotation needed to find $\Delta_l$ and $ \bar{\Omega}_{k:k+H}$ (implemented in \texttt{Future\_rotation}), it is assumed that the angular rate $\omega_k$ at time $k$ is constant over the horizon, and so, the future rotations are found through integration.  \\ \\
-Finding the future state vector $x_{k:k+H}$ is implemented in \texttt{Future\_poses}, where the following equations are used to calculate the future state vector. 
+where $\zl\in\mathbb{R}^{3n_\ell}$, $\F_l\in\mathbb{R}^{3n_\ell\times 9(H+1)}$, $\E_l\in\mathbb{R}^{3n_\ell\times 3}$, and $n_\ell$ is .
+
+% In order for a point to be useful, it must be able to be triangulated (so its depth can be estimated in the pose graph).
+
+\begin{figure}
+\centering
+\includegraphics[width=0.65\columnwidth]{visibility.pdf} 
+\caption{Forward propagation of the bearing vector to landmark $l$, originally detected at $\xhat_{k+1}$. Although $\xhatkkH$ contains the previous pose $\x_k$, the landmark was not detected there and so it is not considered. In this illustration, the predicted feature vector at $\xhat_{k+2}$ lies outside the field of view and so fails the visibility check.}
+\label{fig:visibility}
+\end{figure}
+
+\subsubsection{Implementation Details}
+Noting that the matrices in~\eqref{eqn:vision-model-stacked} are sparse, we can avoid large matrix multiplication by analyzing the sparsity patterns and reusing computation where possible.
+The stacked matrices $\F_l$ and $\E_l$ have the following structure:
 \begin{equation}
-    v_j = v_k + g\delta_{kj} + \sum_{i=k}^{j-1} R_i(\Tilde{a_i} -b_k -\eta_i)\delta
+\F_l =
+\begin{bmatrix}
+\zero_{3\times9} & \A_{k+1,l} & \zero_{3\times9} & \cdots & \zero_{3\times9} \\
+\zero_{3\times9} & \zero_{3\times9} & \A_{h,l} & \cdots & \zero_{3\times9} \\
+\zero_{3\times9} & \zero_{3\times9} & \zero_{3\times9} & \ddots & \zero_{3\times9} \\
+\zero_{3\times9} & \zero_{3\times9} & \zero_{3\times9} & \cdots & \A_{k+H,l} \\
+\end{bmatrix}
 \end{equation}
-\begin{equation}
-    t_j = t_k + \sum_{i=k}^{j-1} (v_i\delta+0.5g\delta^2+0.5R_k(\Tilde{a_i} -b_k -\eta_i)\delta^2)
-\end{equation}
-\begin{equation}
-    b_j = b_k +\eta_{kj}^b
-\end{equation}
-Next, we need to calculate the future calibrated pixel projections of the features/landmarks visible at the time $k$. To do this, we need to use our estimate of the position of the landmark from the pose graph optimization in VINS-Mono. For now, there is a placeholder function, \texttt{Landmark\_est\_from\_PGO} that returns arbitrary positions for six features. In \texttt{Visibility\_check}, using the position estimate of the landmark from PGO ($p_{l/o}$)and the predicted future state of the camera at each timestep ($p_{c/o}$), we can find the predicted pixel projection of the landmarks as follows.
-\begin{equation}
-    p_{l/c} = p_{l/o} - p_{c/o}
-\end{equation}
-\begin{equation}
-    u = s_x(f\frac{p_x^c}{p_z^c}) + o_x
-\end{equation}
-\begin{equation}
-    v = s_y(f\frac{p_y^c}{p_z^c}) + o_y
-\end{equation}
-Then, based on the image dimensions, a visibility check is done to see if the projected pixel location is within view of the camera, and the third dimension of $u$ keeps track of this (1 = visible, 0 = not visible). 
-Stopped here, next is $u\_{kl}$ explanation
+
+% To find $\Delta_l$ (a 9(H+1) x 9(H+1) matrix), we can use the equation below for each l'th feature. 
+% \begin{equation}
+%     \Delta_l = \mathbf{F_l^TF_l - F_l^TE_l(E_l^TE_l)^{-1}E_l^TF_l}
+% \end{equation}
+% In the implementation, $\Delta_l$ is a 9(H+1) x 9(H+1) x (num. of features) such that $\Delta_l$ for all the features are stored in one 3D array.\\
+
+% To find $F_l$ and $E_l$, we must find $F_{lk}$ and $E_{lk}$, and vertically stack $F_{lk}$ and $E_{lk}$ for every frame k where feature/landmark l is visible. To find 
+% $F_{lk}$ and $E_{lk}$, we use the following equation where $k = i$ to find it for every future frame from k to H, not just k. 
+
+% \begin{equation}
+%     F\_block_{il} = [u_{il}]_x(R_kR_{cam}^{IMU})^T
+%     E_{il} = [u_{il}]_x(R_kR_{cam}^{IMU})^T
+% \end{equation}
+% where $F\_block_{il}$ is the 3x3 block that multiples by the state vector $x_{k:k+H}$ by the first three components of the state at each time i (the translation $t_k$ part of the state vector at each time i) such that $F_{il}$ is 3 x 9(H+1)  and $E_{il}$ is 3x3. We stack $F_{il}$ and $E_{il}$ over the $n_l$ frames where feature/landmark l is visible to obtain $F_l$ and $E_l$. Until now, we have yet to look into how to predict whether at which frames feature/landmark l is visible next and to find $u_{kl}$; we look at this next. 
+% \subsubsection{Simulating future states}
+% To find $u_{kl}$ and $n_l$ (frames where feature/landmark l is visible) requires simulating forward future states and the pixel projections of the features at time k at future times $k:k+H$, along with a visibility check on those pixels. \\ \\
+% To simulate forward rotation needed to find $\Delta_l$ and $ \bar{\Omega}_{k:k+H}$ (implemented in \texttt{Future\_rotation}), it is assumed that the angular rate $\omega_k$ at time $k$ is constant over the horizon, and so, the future rotations are found through integration.  \\ \\
+% Finding the future state vector $x_{k:k+H}$ is implemented in \texttt{Future\_poses}, where the following equations are used to calculate the future state vector. 
+% \begin{equation}
+%     v_j = v_k + g\delta_{kj} + \sum_{i=k}^{j-1} R_i(\Tilde{a_i} -b_k -\eta_i)\delta
+% \end{equation}
+% \begin{equation}
+%     t_j = t_k + \sum_{i=k}^{j-1} (v_i\delta+0.5g\delta^2+0.5R_k(\Tilde{a_i} -b_k -\eta_i)\delta^2)
+% \end{equation}
+% \begin{equation}
+%     b_j = b_k +\eta_{kj}^b
+% \end{equation}
+% Next, we need to calculate the future calibrated pixel projections of the features/landmarks visible at the time $k$. To do this, we need to use our estimate of the position of the landmark from the pose graph optimization in VINS-Mono. For now, there is a placeholder function, \texttt{Landmark\_est\_from\_PGO} that returns arbitrary positions for six features. In \texttt{Visibility\_check}, using the position estimate of the landmark from PGO ($p_{l/o}$)and the predicted future state of the camera at each timestep ($p_{c/o}$), we can find the predicted pixel projection of the landmarks as follows.
+% \begin{equation}
+%     p_{l/c} = p_{l/o} - p_{c/o}
+% \end{equation}
+% \begin{equation}
+%     u = s_x(f\frac{p_x^c}{p_z^c}) + o_x
+% \end{equation}
+% \begin{equation}
+%     v = s_y(f\frac{p_y^c}{p_z^c}) + o_y
+% \end{equation}
+% Then, based on the image dimensions, a visibility check is done to see if the projected pixel location is within view of the camera, and the third dimension of $u$ keeps track of this (1 = visible, 0 = not visible). 
+% Stopped here, next is $u\_{kl}$ explanation

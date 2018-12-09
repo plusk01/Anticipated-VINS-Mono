@@ -127,6 +127,9 @@ state_horizon_t HorizonGenerator::groundTruth(const state_t& state_0,
 void HorizonGenerator::visualize(const std_msgs::Header& header,
                                  const state_horizon_t& state_kkH)
 {
+  // Don't waste cycles unnecessarily
+  if (pub_horizon_.getNumPublishers() == 0) return;
+
   nav_msgs::Path path;
   path.header = header;
   path.header.frame_id = "world";
