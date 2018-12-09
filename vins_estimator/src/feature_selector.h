@@ -105,7 +105,7 @@ private:
    *
    * @return     delta_ells (information matrix for each feature in image)
    */
-  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> calcInfoFromFeatures(
+  delta_ls calcInfoFromFeatures(
     const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions,
     Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU);
   /**
@@ -136,27 +136,29 @@ private:
       double nrImuMeasurements, double deltaImu);
 
   omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
-  
+
   std::vector<omega_horizon_t> calcInfoFromFeatures(const image_t& image);
 
-  void keepInformativeFeatures(image_t& image, int kappa,
+  void keepInformativeFeatures(image_t& image, int& kappa,
           const omega_horizon_t& Omega_kkH,
-          const std::vector<omega_horizon_t>& Delta_ells,
-          const std::vector<omega_horizon_t>& Delta_used_ells);
+          const delta_ls& Delta_ells,
+          const delta_ls& Delta_used_ells);
 
   std::vector<std::pair<int,double>> sortedUpperBounds(
       const image_t& subset, const omega_horizon_t& Omega,
-      const std::vector<omega_horizon_t>& Delta_ells);
+      const delta_ls& Delta_ells);
 
-  double logDet(const omega_horizon_t& Omega,
-                const omega_horizon_t& Delta_ell);
+  double logDet(image_t& current_subset,
+                const omega_horizon_t& Omega,
+                const delta_ls& Delta_ells,
+                Eigen::VectorXd& probFeatureLost);
 
   double logDetUB(const omega_horizon_t& Omega,
-                  const omega_horizon_t& Delta_ell);
+                  const delta_ls& Delta_ell);
 
   double minEig(const omega_horizon_t& Omega,
-                const omega_horizon_t& Delta_ell);
+                const delta_ls& Delta_ell);
 
   double minEigUB(const omega_horizon_t& Omega,
-                  const omega_horizon_t& Delta_ell);
+                  const delta_ls& Delta_ell);
 };

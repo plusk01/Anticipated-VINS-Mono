@@ -37,7 +37,7 @@ void FeatureSelector::setNextStateFromImuPropagation(
   state_k_.first.segment<3>(xVEL) = estimator_.Vs[WINDOW_SIZE];
   state_k_.first.segment<3>(xB_A) = estimator_.Bas[WINDOW_SIZE];
   state_k_.second = estimator_.Rs[WINDOW_SIZE];
-  
+
 
   //
   // (yet-to-be-corrected) state of current frame
@@ -57,7 +57,7 @@ void FeatureSelector::setNextStateFromImuPropagation(
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::select(image_t& image, int kappa, 
+void FeatureSelector::select(image_t& image, int kappa,
         const std_msgs::Header& header, int nrImuMeasurements)
 {
   //
@@ -114,7 +114,6 @@ void FeatureSelector::select(image_t& image, int kappa,
   //
   // Attention: Select a subset of features that maximizes expected information
   //
-
   // removes poor feature choices from image
   keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
 
@@ -144,10 +143,10 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
 // ----------------------------------------------------------------------------
 
-std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
+delta_ls FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
 {
   //initialize the return map, delta_ells
-  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> delta_ells;
+  delta_ls delta_ells;
   // pull out information we will need for visibility check
   int maxU = imageDimensions[0]; // max u pixel to stay in frame
   int maxV = imageDimensions[1]; // max v pixel to stay in frame
@@ -261,7 +260,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
 
   for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
 
-    // convenience: frames (i, j) are a consecutive pair in horizon    
+    // convenience: frames (i, j) are a consecutive pair in horizon
     const auto& Qi = state_kkH[h-1].second;
     const auto& Qj = state_kkH[h].second;
 
@@ -371,17 +370,19 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
-          const omega_horizon_t& Omega_kkH,
-          const std::vector<omega_horizon_t>& Delta_ells,
-          const std::vector<omega_horizon_t>& Delta_used_ells)
+void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
+          const omega_horizon_t& Omega,
+          const delta_ls& Delta_ells,
+          const delta_ls& Delta_used_ells)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
-  omega_horizon_t Omega = Omega_kkH;
-  for (const auto& Delta : Delta_used_ells) {
-    Omega += Delta;
-  }
+  // omega_horizon_t Omega = Omega_kkH;
+
+  // TODO: correct if wrong here, but should be sum over features of delta_l previously seen
+  // for (const auto& Delta : Delta_used_ells) {
+  //   Omega += Delta;
+  // }
 
   // subset of most informative features
   image_t subset;
@@ -390,8 +391,23 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
   for (int i=0; i<kappa; ++i) {
 
     // compute upper bounds
-    auto U = sortedUpperBounds(subset, Omega, Delta_ells);
-
+    auto UB = sortedUpperBounds(subset, Omega, Delta_ells);
+    double fMax = -1;
+    double lMax = -1;
+    for (int u = 0; u < UB.size(); u++) {
+      if (UB[u].second < fMax) {
+        break;
+      }
+      image_t proposedSubset = image;//newSubset(subset,U(u));
+      Eigen::VectorXd probFeatureLost = Eigen::VectorXd::Zero(image.size()); //placeholder
+      double fValue = logDet(proposedSubset, Omega, Delta_ells, probFeatureLost);
+      if (fValue > fMax) {
+        fMax = fValue;
+        lMax = UB[u].first;
+      }
+    }
+    image_t newSubset = image; // placeholder
+    subset = newSubset;
   }
 
   // return the subset
@@ -402,31 +418,48 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
 
 std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
     const image_t& subset, const omega_horizon_t& Omega,
-    const std::vector<omega_horizon_t>& Delta_ells)
+    const delta_ls& Delta_ells)
 {
   return {};
 }
 
 // ----------------------------------------------------------------------------
-
-double FeatureSelector::logDet(const omega_horizon_t& Omega,
-                               const omega_horizon_t& Delta_ell)
+double FeatureSelector::logDet(image_t& current_subset,
+                               const omega_horizon_t& Omega,
+                               const delta_ls& Delta_ells,
+                               Eigen::VectorXd& probFeatureLost)
 {
-  return Utility::logdet(Omega + Delta_ell, true);
+  // sum up second part of the equation
+  omega_horizon_t Delta_ells_sum;
+  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double,
+      7, 1>>>>::const_iterator feature=current_subset.begin();
+      feature!=current_subset.end(); ++feature)
+      {
+        int feature_id = feature->first;
+        Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureLost[feature_id];
+   }
+  return Utility::logdet(Omega + Delta_ells_sum, true);
 }
 
 // ----------------------------------------------------------------------------
 
 double FeatureSelector::logDetUB(const omega_horizon_t& Omega,
-                                 const omega_horizon_t& Delta_ell)
+                                 const delta_ls& Delta_ell)
 {
-  return 0;
+  // for (std::map<int, omega_horizon_t>::const_iterator
+  // feature=Delta_ell.begin();  feature!=Delta_ell.end(); ++feature)
+  // {
+  //   int feature_id = feature->first;
+  //   Delta_ell_this_feature = feature->second;
+  //   Omega_current = Omega(feature_id,:,:);
+  // }
+  return 1.0;
 }
 
 // ----------------------------------------------------------------------------
 
 double FeatureSelector::minEig(const omega_horizon_t& Omega,
-                               const omega_horizon_t& Delta_ell)
+                               const delta_ls& Delta_ells)
 {
   return 0;
 }
@@ -434,7 +467,7 @@ double FeatureSelector::minEig(const omega_horizon_t& Omega,
 // ----------------------------------------------------------------------------
 
 double FeatureSelector::minEigUB(const omega_horizon_t& Omega,
-                                 const omega_horizon_t& Delta_ell)
+                                 const delta_ls& Delta_ells)
 {
   return 0;
 }
