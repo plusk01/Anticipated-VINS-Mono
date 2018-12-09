@@ -2,6 +2,39 @@
 
 \section{Attention and Anticipation}\label{sec:anticipation}
 
+The attention and anticipation algorithm~\cite{Carlone2017} selects a subset $\mathsf{S}$ of the features $\mathsf{F}$ detected in the current frame to pass to the VIO back end.
+The subset of features should have at most $\kappa$ features that are the most useful for reducing uncertainty in vision-based state estimation.
+This feature selection problem can be stated as
+\begin{equation}\label{eqn:sensor-selection-problem}
+\max_{\mathsf{S}\subset\mathsf{F}} \quad f(\mathsf{S}) \qquad \text{subject to}\quad |\mathsf{S}|\le\kappa.
+\end{equation}
+The solution of this problem relies on the selection of a metric $f$ that maps subsets of features to their usefulness.
+
+Although sensor selection problems have been shown to be NP-hard because of the introduction of binary selection variables, recent results have leveraged submodular cost functions to allow greedy algorithms to find efficiently solutions to Problem~\eqref{eqn:sensor-selection-problem} with guarantees on suboptimality~\cite{Shamaiah2010}.
+\pcl{define what a submodular set function is.}
+The goal then is to identify a performance metric that exhibits submodularity and captures the accuracy of VIO.
+
+Following~\cite{Carlone2017}, we use the logdet metric to measure the volume of the estimation uncertainty ellipsoid up to a constant.
+Let $k+1$ be the time at which we have obtained a new feature set to choose from.
+Then $\x_k$ is the optimized pose of the previous camera frame, which is the latest pose estimate from the fixed-lag smoother of the pose-graph optimization back end (see Figure~\ref{fig:meas_timeline}).
+Let $\xhatkkH\triangleq\begin{bmatrix}\x_k&\xhat_{k+1}&\cdots&\xhat_{k+H}\end{bmatrix}$ denote the stacked state vector over a horizon $H$, where $\xhat_{k+1:k+H}$ are predicted future states yet to be optimized over.
+Moreover, let $\PkkH$ be the covariance of the estimation error corresponding to $\xhatkkH$ and its inverse is called the information matrix, denoted $\OmegakkH\triangleq\PkkH^{-1}$.
+With these definitions, the logdet metric is written
+\begin{align}
+\fdet(\mathsf{S}) &= \logdet(\OmegakkH(\mathsf{S}))\\
+&= \logdet\left(\OmegabarkkH + \sum_{\ell\in\mathsf{S}}\Delta_\ell\right),
+\end{align}
+where $\OmegabarkkH$ is the information matrix corresponding to the predicted robot motion over the horizon and $\Delta_\ell$ is the information matrix of the $\ell$-th feature.
+The remainder of this section discusses the computation of $\OmegabarkkH$ and $\Delta_\ell$, and the implementation of the greedy selection algorithm.
+
+\begin{figure}
+\centering
+\includegraphics[width=\columnwidth]{meas_timeline.pdf} 
+\caption{Timing diagram.}
+\label{fig:meas_timeline} 
+\end{figure}
+
+
 % =============================================================================
 \subsection{Attention Allocation Algorithm}\label{sub:attn_algo}
 
