@@ -1,6 +1,7 @@
 #include "feature_selector.h"
 
-FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
+FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator, 
+                                 const std::string& calib_file)
 : nh_(nh), estimator_(estimator)
 {
 
@@ -9,6 +10,13 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
 
   // set parameters for the horizon generator (extrinsics -- for visualization)
   hgen_->setParameters(estimator_.ric[0], estimator_.tic[0]);
+
+  // save extrinsics (for feature info step)
+  q_IC_ = estimator_.ric[0];
+  t_IC_ = estimator_.tic[0];
+
+  // create camera model from calibration YAML file
+  m_camera_ = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
 }
 
 // ----------------------------------------------------------------------------
@@ -98,17 +106,11 @@ void FeatureSelector::select(image_t& image, int kappa,
   auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
-  Eigen::Vector2i imageDimensions;
-  imageDimensions << 640,480;
-  Eigen::Matrix3d cameraCalibration;
-  cameraCalibration << 1, 1, 1, // placeholder
-                       0, 1, 1,
-                       0, 0, 1;
-  Eigen::Matrix3d RcamIMU = Eigen::Matrix3d::Identity();
-  auto Delta_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
+  auto Delta_ells = calcInfoFromFeatures(image, state_kkH);
 
   // Calculate the information content of each of the currently used features
-  auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
+  std::map<int, omega_horizon_t> Delta_used_ells;
+  // auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH);
 
 
   //
@@ -144,58 +146,66 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 
 // ----------------------------------------------------------------------------
 
-std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
+std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
+                                            const image_t& image,
+                                            const state_horizon_t& state_kkH)
 {
-  //initialize the return map, delta_ells
-  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> delta_ells;
+  //initialize the return map, Delta_ells
+  std::map<int, omega_horizon_t> Delta_ells;
+
   // pull out information we will need for visibility check
-  int maxU = imageDimensions[0]; // max u pixel to stay in frame
-  int maxV = imageDimensions[1]; // max v pixel to stay in frame
-  std::map<int,Eigen::Vector3d> featureBearingVectors; // feature bearing vector w.r.t camera
-  std::map<int,Eigen::Vector3d> worldFeatureBearingVectors; // feature bearing vectors w.r.t origin
-  int camera_id = 0;
-  // iterate over all features and make bearing vectors for each feature
-  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
-   feature!=image.end(); ++feature)
-  {
-    int feature_id = feature->first;
-    featureBearingVectors[feature_id] << feature->second[camera_id].second(0,0),
-                                   feature->second[camera_id].second(1,0),
-                                   feature->second[camera_id].second(2,0);
-    featureBearingVectors[feature_id].normalized();
-    // TODO: Make a better depth guess
-  }
-  // iterate over all features over horizon and find Delta_ells
-  // To do this, we will
-  // ******** project pixel locations from states horizon
-  // ******** check visibility on whether feature is expected to stay in the frame
-  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
-   feature!=image.end(); ++feature)
-  {
-    int feature_id = feature->first;
-    // for each feature, reinitialize
-    // ******* pixelProjection (vector consists of u,v, and visibility check flag (1 = visible, 0 = not visible))
-    // ******* p_lc (position of landmark w.r.t new camera position)
-    Eigen::MatrixXd pixelProjection(3,HORIZON);
-    Eigen::MatrixXd p_lc(3,HORIZON);
-    // find feature bearing vector at time k = 0 in the world frame
-    worldFeatureBearingVectors[feature_id] = featureBearingVectors[feature_id] + state_kkH[0].first.segment<3>(xPOS);
-    for (int h=0; h<HORIZON; ++h)
-    {
-      // calculate p_lc and pizelProjection
-      p_lc.col(h) = worldFeatureBearingVectors[feature_id] - state_kkH[h].first.segment<3>(xPOS);
-      pixelProjection(0,h) = cameraCalibration(0,0)*(p_lc(0,h)/p_lc(2,h)) + cameraCalibration(0,2);// u pixel projection
-      pixelProjection(1,h) = cameraCalibration(1,1)*(p_lc(1,h)/p_lc(2,h)) + cameraCalibration(1,2);// v pixel projection
-      // Visibility check
-      if (pixelProjection(0,h) > 0 && pixelProjection(1,h) > 0 && pixelProjection(0,h) < maxU && pixelProjection(1,h) < maxV)
-      {
-        pixelProjection(2,h) = 1;
-      }
-      else
-      {
-        pixelProjection(2,h) = 0;
-      }
+  int maxU = m_camera_->imageWidth();  // max u pixel to stay in frame
+  int maxV = m_camera_->imageHeight(); // max v pixel to stay in frame
+
+  // convenience: (yet-to-be-corrected) transformation
+  // of camera frame w.r.t world frame at time k+1
+  const auto& t_WC_k1 = state_k1_.first.segment<3>(xPOS) + state_k1_.second * t_IC_;
+  const auto& q_WC_k1 = state_k1_.second * q_IC_;
+
+  for (const auto& fpair : image) {
+
+    // there is only one camera, so we expect only one vector per feature
+    constexpr int c = 0;
+
+    // extract feature id and bearing vector from obnoxious data structure
+    int feature_id = fpair.first;
+    Eigen::Vector3d feature = fpair.second[c].second.head<3>().normalized();
+
+    // TODO: Scale bearing vector by depth
+    feature *= 1.0;
+
+    // Estimated position of the landmark w.r.t the world frame
+    auto pell = t_WC_k1 + q_WC_k1 * feature;
+
+    //
+    // Forward-simulate the feature bearing vector over the horizon
+    //
+
+    // NOTE: start forward-simulating the landmark projection from k+2
+    // (we have the frame k+1 projection, since that's where it came from)
+    for (int h=2; h<=HORIZON; ++h) { 
+
+      // convenience: future camera frame (k+h) w.r.t world frame
+      const auto& t_WC_h = state_kkH[h].first.segment<3>(xPOS);
+      const auto& q_WC_h = state_kkH[h].second;
+
+      // create bearing vector of feature w.r.t camera pose h
+      Eigen::Vector3d uell = (q_WC_h.inverse() * (pell - t_WC_h)).normalized();
+
+      // TODO: Maybe flip the problem so we don't have to do this every looped-loop
+      // project to pixels so we can perform visibility check
+      Eigen::Vector2d pixels;
+      m_camera_->spaceToPlane(uell, pixels);
+
+      // TODO: Just skip this iter?
+      if (inFOV(pixels));
+
+
+
+
     }
+
+
     // initialize F,E to have as many blocks as visible pixels for this feature
     Eigen::MatrixXd F = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),9*(HORIZON+1));
     Eigen::MatrixXd E = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),3);
@@ -208,26 +218,36 @@ std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> FeatureSelect
         Eigen::Vector3d u_kl;
         u_kl << p_lc.col(h)[0]/p_lc.col(h)[2], p_lc.col(h)[1]/p_lc.col(h)[2], 1;
         u_kl.normalize();
-        Eigen::Matrix3d u_klSkew;
-        u_klSkew << 0,        -u_kl[2], u_kl[1],
-                    u_kl[2],  0,        u_kl[0],
-                    -u_kl[1], u_kl[0],  0;
+        Eigen::Matrix3d u_klSkew = Utility::skewSymmetric(u_kl);
         Eigen::Quaterniond qh = state_kkH[h].second;
-        qh.normalize();
-        Eigen::Matrix3d Rh = qh.toRotationMatrix();
-        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*((Rh*RcamIMU).transpose());
-        E.block<3,3>(3*visibleCounter,0)= -u_klSkew*((Rh*RcamIMU).transpose());
+        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*(qh*q_IC_).inverse();
+        E.block<3,3>(3*visibleCounter,0)= -F.block<3,3>(3*visibleCounter,9*h);
         visibleCounter++;
       }
     }
-    // Calculate delta_ells from Eq. 23 in paper
-    delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
+
+    // Calculate Delta_ells from Eq. 23 in paper
+    Delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
   }
-  return delta_ells;
+  return Delta_ells;
 }
 
+// ----------------------------------------------------------------------------
+
+bool FeatureSelector::inFOV(const Eigen::Vector2d& p)
+{
+  constexpr int border = 0; // TODO: Could be good to have a border here
+  int u = std::round(p.coeff(0));
+  int v = std::round(p.coeff(1));
+  return (border <= u && u < m_camera_->imageWidth() - border) && 
+         (border <= v && v < m_camera_->imageHeight() - border);
+}
+
+// ----------------------------------------------------------------------------
+
 omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
-        const state_horizon_t& state_kkH, double nrImuMeasurements, double deltaImu)
+                                    const state_horizon_t& state_kkH,
+                                    double nrImuMeasurements, double deltaImu)
 {
   // ** Build the large information matrix over the horizon (eq 15).
   //
@@ -373,14 +393,14 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
           const omega_horizon_t& Omega_kkH,
-          const std::vector<omega_horizon_t>& Delta_ells,
-          const std::vector<omega_horizon_t>& Delta_used_ells)
+          const std::map<int, omega_horizon_t>& Delta_ells,
+          const std::map<int, omega_horizon_t>& Delta_used_ells)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
   omega_horizon_t Omega = Omega_kkH;
   for (const auto& Delta : Delta_used_ells) {
-    Omega += Delta;
+    Omega += Delta.second;
   }
 
   // subset of most informative features
@@ -395,14 +415,14 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
   }
 
   // return the subset
-  subset.swap(image);
+  // subset.swap(image);
 }
 
 // ----------------------------------------------------------------------------
 
 std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
     const image_t& subset, const omega_horizon_t& Omega,
-    const std::vector<omega_horizon_t>& Delta_ells)
+    const std::map<int, omega_horizon_t>& Delta_ells)
 {
   return {};
 }

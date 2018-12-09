@@ -39,7 +39,7 @@ T readParam(ros::NodeHandle &n, std::string name)
     return ans;
 }
 
-void readParameters(ros::NodeHandle &n)
+std::string readParameters(ros::NodeHandle &n)
 {
     std::string config_file;
     config_file = readParam<std::string>(n, "config_file");
@@ -130,4 +130,6 @@ void readParameters(ros::NodeHandle &n)
     }
     
     fsSettings.release();
+
+    return config_file;
 }

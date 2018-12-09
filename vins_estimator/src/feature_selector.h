@@ -5,12 +5,16 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <string>
 
 #include <ros/ros.h>
 #include <std_msgs/Header.h>
 
 #include <Eigen/Dense>
 #include <Eigen/SVD>
+
+#include <camodocal/camera_models/Camera.h>
+#include <camodocal/camera_models/CameraFactory.h>
 
 #include "utility/utility.h"
 #include "utility/state_defs.h"
@@ -21,7 +25,7 @@
 class FeatureSelector
 {
 public:
-  FeatureSelector(ros::NodeHandle nh, Estimator& estimator);
+  FeatureSelector(ros::NodeHandle nh, Estimator& estimator, const std::string& calib_file);
   ~FeatureSelector() = default;
 
 
@@ -59,9 +63,15 @@ private:
   // ROS stuff
   ros::NodeHandle nh_;
 
+  camodocal::CameraPtr m_camera_; ///< geometric camera model
+
   Estimator& estimator_; ///< Reference to vins estimator object
 
   bool visualize_ = true;
+
+  // extrinsic parameters: camera frame w.r.t imu frame
+  Eigen::Quaterniond q_IC_;
+  Eigen::Vector3d t_IC_;
 
   // IMU parameters. TODO: Check if these are/should be discrete
   double accVarDTime_ = 0.01;
@@ -99,15 +109,12 @@ private:
    *
    * @param[in]  image              Feature data in this image
    * @param[in]  state_kkH          States over horizon
-   * @param[in]  imageDimensions    Dimensions of camera image
-   * @param[in]  cameraCalibration  Camera calibration matrix
-   * @param[in]  RcamIMU            Rotation of camera w.r.t IMU
    *
    * @return     delta_ells (information matrix for each feature in image)
    */
-  std::map<int, Eigen::Matrix<double, 9*(HORIZON+1), 9*(HORIZON+1)>> calcInfoFromFeatures(
-    const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions,
-    Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU);
+  std::map<int, omega_horizon_t> calcInfoFromFeatures(
+                              const image_t& image, const state_horizon_t& state_kkH);
+
   /**
    * @brief      Calculate the expected info gain from robot motion
    *
@@ -141,12 +148,12 @@ private:
 
   void keepInformativeFeatures(image_t& image, int kappa,
           const omega_horizon_t& Omega_kkH,
-          const std::vector<omega_horizon_t>& Delta_ells,
-          const std::vector<omega_horizon_t>& Delta_used_ells);
+          const std::map<int, omega_horizon_t>& Delta_ells,
+          const std::map<int, omega_horizon_t>& Delta_used_ells);
 
   std::vector<std::pair<int,double>> sortedUpperBounds(
       const image_t& subset, const omega_horizon_t& Omega,
-      const std::vector<omega_horizon_t>& Delta_ells);
+      const std::map<int, omega_horizon_t>& Delta_ells);
 
   double logDet(const omega_horizon_t& Omega,
                 const omega_horizon_t& Delta_ell);
