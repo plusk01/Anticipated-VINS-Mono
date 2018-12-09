@@ -116,7 +116,8 @@ void FeatureSelector::select(image_t& image, int kappa,
   // Attention: Select a subset of features that maximizes expected information
   //
   // removes poor feature choices from image
-  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
+  Eigen::VectorXd probFeatureLost = Eigen::VectorXd::Constant(image.size(), 1.0); // PLACEHOLDER, Pipe in from tracker
+  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells, probFeatureLost);
 
 
   // for next iteration
@@ -374,7 +375,8 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
           const omega_horizon_t& Omega,
           const delta_ls& Delta_ells,
-          const delta_ls& Delta_used_ells)
+          const delta_ls& Delta_used_ells,
+          Eigen::VectorXd& probFeatureLost)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
@@ -382,35 +384,41 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
 
   // TODO: correct if wrong here, but should be sum over features of delta_l previously seen
   // for (const auto& Delta : Delta_used_ells) {
-  //   Omega += Delta;
+  //   Omega += Delta.second;
   // }
 
   // subset of most informative features
   image_t subset;
 
   // select the indices of the best features
-  for (int i=0; i<kappa; ++i) {
+  for (int i=0; i<kappa; ++i)
+  {
+    // compute upper bounds in form of <upperBoundValue, feature_ID>
+    // descending by upperBoundValue
 
-    // compute upper bounds
-    auto UB = sortedUpperBounds(subset, image, Omega, Delta_ells);
+    std::map<double,int,std::greater<double>> upperBounds = sortedlogDetUB(Omega, Delta_ells,
+                                                              subset,image, probFeatureLost);
     double fMax = -1;
     double lMax = -1;
-    for (int u = 0; u < UB.size(); u++) {
-      if (UB[u].second < fMax) {
+    for (auto& fpair : upperBounds) // why doesn't this work: (auto&& [first,second] : upperBounds)
+    {
+      double ub = fpair.first;
+      int feature_id = fpair.second;
+      if (ub < fMax)
+      {
         break;
       }
-      image_t proposedSubset = image;//makeNewSubset(subset,UB(u),image);
-      Eigen::VectorXd probFeatureLost = Eigen::VectorXd::Zero(image.size()); //placeholder
+      image_t proposedSubset = makeNewSubset(subset,feature_id,image);
       double fValue = logDet(proposedSubset, Omega, Delta_ells, probFeatureLost);
-      if (fValue > fMax) {
+      if (fValue > fMax)
+      {
         fMax = fValue;
-        lMax = UB[u].first;
+        lMax = feature_id;
       }
     }
-    image_t newSubset = image; // placeholder
+    image_t newSubset = makeNewSubset(subset,lMax,image); // placeholder
     subset = newSubset;
   }
-
   // return the subset
   subset.swap(image);
 }
@@ -419,19 +427,6 @@ image_t FeatureSelector::makeNewSubset(image_t currentSubset, double featureIDTo
    image_t image) {
   currentSubset[featureIDToAdd] = image[featureIDToAdd];
   return currentSubset; // currentSubset is now the new subset
-}
-// ----------------------------------------------------------------------------
-
-std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
-    const image_t& subset, const image_t& image, const omega_horizon_t& Omega,
-    const delta_ls& Delta_ells)
-{
-  // Eigen::VectorXd upperBounds(image.size()) = logDetUB();// returned from upper bounds, should be a vector of pairs
-  // // , second the upper bound, first the feature_id
-  // // then, I'm going to sort this pair based on the second part of pair (the upper bound)
-  // // then we return this vector of pairs
-  // std::pair <Eigen::VectorXd(image_t.size()), image_t> upper_bounds_unsorted ("tomatoes",2.30);
-  return {};
 }
 
 // ----------------------------------------------------------------------------
@@ -452,13 +447,13 @@ double FeatureSelector::logDet(image_t& currentSubset,
 
 // ----------------------------------------------------------------------------
 
-std::map<int, double> FeatureSelector::logDetUB(const omega_horizon_t& Omega,
+std::map<double,int,std::greater<double>> FeatureSelector::sortedlogDetUB(const omega_horizon_t& Omega,
                                  const delta_ls& Delta_ells, image_t& subset,
                                  const image_t& image, Eigen::VectorXd& probFeatureLost)
 {
-  // this should return a vector of pairs with upper bound second entry
+  // this should return a vector of pairs with upper bound first entry
   // and the feature_id as the second
-  std::map<int, double> logDetUBVal; // int = feature_id, double = upper bound
+  std::map<double,int,std::greater<double>> logDetUpperBound; // int = feature_id, double = upper bound
   for (const auto& fpair : image)
   {
       int featureIDToAdd = fpair.first;
@@ -470,12 +465,14 @@ std::map<int, double> FeatureSelector::logDetUB(const omega_horizon_t& Omega,
           Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureLost[feature_id];
       }
       omega_horizon_t costFunction = Omega + Delta_ells_sum;
+      double logDetUBValue;
       for (int i = 0; i < STATE_SIZE*(HORIZON+1); i++)
       {
-          logDetUBVal[featureIDToAdd] += log(costFunction(i,i));
+          logDetUBValue += log(costFunction(i,i));
       }
+      logDetUpperBound[logDetUBValue] = featureIDToAdd;
   }
-  return logDetUBVal;
+  return logDetUpperBound;
 }
 
 // ----------------------------------------------------------------------------

@@ -142,21 +142,23 @@ private:
   void keepInformativeFeatures(image_t& image, int& kappa,
           const omega_horizon_t& Omega_kkH,
           const delta_ls& Delta_ells,
-          const delta_ls& Delta_used_ells);
+          const delta_ls& Delta_used_ells,
+          Eigen::VectorXd& probFeatureLost);
 
   image_t makeNewSubset(image_t currentSubset, double featureIDToAdd, image_t image);
 
-  std::vector<std::pair<int,double>> sortedUpperBounds(
-      const image_t& subset, const image_t& image,
-      const omega_horizon_t& Omega,
-      const delta_ls& Delta_ells);
+  // std::vector<std::pair<int,double>> sortedUpperBounds(
+  //     const image_t& subset, const image_t& image,
+  //     const omega_horizon_t& Omega,
+  //     const delta_ls& Delta_ells,
+  //     Eigen::VectorXd& probFeatureLost);
 
   double logDet(image_t& currentSubset,
                 const omega_horizon_t& Omega,
                 const delta_ls& Delta_ells,
                 Eigen::VectorXd& probFeatureLost);
 
-  std::map<int, double> logDetUB(const omega_horizon_t& Omega,
+  std::map<double,int,std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
                         const delta_ls& Delta_ells, image_t& subset,
                         const image_t& image, Eigen::VectorXd& probFeatureLost);
 
