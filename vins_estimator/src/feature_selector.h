@@ -151,13 +151,14 @@ private:
       const omega_horizon_t& Omega,
       const delta_ls& Delta_ells);
 
-  double logDet(image_t& current_subset,
+  double logDet(image_t& currentSubset,
                 const omega_horizon_t& Omega,
                 const delta_ls& Delta_ells,
                 Eigen::VectorXd& probFeatureLost);
 
-  double logDetUB(const omega_horizon_t& Omega,
-                  const delta_ls& Delta_ell);
+  std::map<int, double> logDetUB(const omega_horizon_t& Omega,
+                        const delta_ls& Delta_ells, image_t& subset,
+                        const image_t& image, Eigen::VectorXd& probFeatureLost);
 
   double minEig(const omega_horizon_t& Omega,
                 const delta_ls& Delta_ell);
