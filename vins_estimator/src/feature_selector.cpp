@@ -391,14 +391,14 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
   for (int i=0; i<kappa; ++i) {
 
     // compute upper bounds
-    auto UB = sortedUpperBounds(subset, Omega, Delta_ells);
+    auto UB = sortedUpperBounds(subset, image, Omega, Delta_ells);
     double fMax = -1;
     double lMax = -1;
     for (int u = 0; u < UB.size(); u++) {
       if (UB[u].second < fMax) {
         break;
       }
-      image_t proposedSubset = image;//newSubset(subset,U(u));
+      image_t proposedSubset = image;//makeNewSubset(subset,UB(u));
       Eigen::VectorXd probFeatureLost = Eigen::VectorXd::Zero(image.size()); //placeholder
       double fValue = logDet(proposedSubset, Omega, Delta_ells, probFeatureLost);
       if (fValue > fMax) {
@@ -413,13 +413,22 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
   // return the subset
   subset.swap(image);
 }
-
+// ----------------------------------------------------------------------------
+image_t FeatureSelector::makeNewSubset(image_t currentSubset, double featureIDToAdd, image_t image) {
+  currentSubset[featureIDToAdd] = image[featureIDToAdd];
+  return currentSubset; // currentSubset is now the new subset
+}
 // ----------------------------------------------------------------------------
 
 std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
-    const image_t& subset, const omega_horizon_t& Omega,
+    const image_t& subset, const image_t& image, const omega_horizon_t& Omega,
     const delta_ls& Delta_ells)
 {
+  // Eigen::VectorXd upperBounds(image.size()) = logDetUB();// returned from upper bounds, should be a vector of pairs
+  // // , second the upper bound, first the feature_id
+  // // then, I'm going to sort this pair based on the second part of pair (the upper bound)
+  // // then we return this vector of pairs
+  // std::pair <Eigen::VectorXd(image_t.size()), image_t> upper_bounds_unsorted ("tomatoes",2.30);
   return {};
 }
 
@@ -429,7 +438,7 @@ double FeatureSelector::logDet(image_t& current_subset,
                                const delta_ls& Delta_ells,
                                Eigen::VectorXd& probFeatureLost)
 {
-  // sum up second part of the equation
+  // sum up second part of Eq. 9
   omega_horizon_t Delta_ells_sum;
   for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double,
       7, 1>>>>::const_iterator feature=current_subset.begin();
@@ -438,6 +447,7 @@ double FeatureSelector::logDet(image_t& current_subset,
         int feature_id = feature->first;
         Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureLost[feature_id];
    }
+  // use utility to calculate logdet efficiently
   return Utility::logdet(Omega + Delta_ells_sum, true);
 }
 
@@ -446,6 +456,9 @@ double FeatureSelector::logDet(image_t& current_subset,
 double FeatureSelector::logDetUB(const omega_horizon_t& Omega,
                                  const delta_ls& Delta_ell)
 {
+  // this should return a vector of pairs with upper bound second entry
+  // and the feature_id as the second
+
   // for (std::map<int, omega_horizon_t>::const_iterator
   // feature=Delta_ell.begin();  feature!=Delta_ell.end(); ++feature)
   // {

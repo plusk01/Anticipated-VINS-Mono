@@ -144,8 +144,11 @@ private:
           const delta_ls& Delta_ells,
           const delta_ls& Delta_used_ells);
 
+  image_t makeNewSubset(image_t currentSubset, double featureIDToAdd, image_t image);
+
   std::vector<std::pair<int,double>> sortedUpperBounds(
-      const image_t& subset, const omega_horizon_t& Omega,
+      const image_t& subset, const image_t& image,
+      const omega_horizon_t& Omega,
       const delta_ls& Delta_ells);
 
   double logDet(image_t& current_subset,
