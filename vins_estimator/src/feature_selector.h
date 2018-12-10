@@ -71,6 +71,13 @@ private:
 
   Estimator& estimator_; ///< Reference to vins estimator object
 
+  /**
+   * @brief This is the largest feature_id from the previous frame.
+   *        In other words, every feature_id that is larger than
+   *        this id is considered a new feature to be selected.
+   */
+  int lastFeatureId_ = 0;
+
   // extrinsic parameters: camera frame w.r.t imu frame
   Eigen::Quaterniond q_IC_;
   Eigen::Vector3d t_IC_;
@@ -124,6 +131,15 @@ private:
   // nanoflann kdtree for guessing depth from existing landmarks
   typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointCloud>, PointCloud, 2/*dim*/> my_kd_tree_t;
   std::unique_ptr<my_kd_tree_t> kdtree_;
+
+  /**
+   * @brief      Split features on the provided key
+   *
+   * @param[in]  k          feature_id to split on (k will not be in image_new)
+   * @param      image      Feature set to split
+   * @param      image_new  Any features with id after k
+   */
+  void splitOnFeatureId(int k, image_t& image, image_t& image_new);
 
   /**
    * @brief      Generate a future state horizon from k+1 to k+H

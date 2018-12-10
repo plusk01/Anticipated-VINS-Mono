@@ -83,6 +83,18 @@ void FeatureSelector::select(image_t& image, int kappa,
 
 
   //
+  // Decide which features are new and which are already being used
+  //
+
+  // remove new features from image and put into image_new
+  image_t image_new;
+  splitOnFeatureId(lastFeatureId_, image, image_new);
+
+  // updated the largest feature_id for the next iteration (if different).
+  if (!image_new.empty()) lastFeatureId_ = image_new.crbegin()->first;
+
+
+  //
   // Future State Generation
   //
 
@@ -103,7 +115,7 @@ void FeatureSelector::select(image_t& image, int kappa,
   auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
-  auto Delta_ells = calcInfoFromFeatures(image, state_kkH);
+  auto Delta_ells = calcInfoFromFeatures(image_new, state_kkH);
 
   // Calculate the information content of each of the currently used features
   std::map<int, omega_horizon_t> Delta_used_ells;
@@ -130,6 +142,21 @@ void FeatureSelector::select(image_t& image, int kappa,
 // Private Methods
 // ----------------------------------------------------------------------------
 
+void FeatureSelector::splitOnFeatureId(int k, image_t& image, image_t& image_new)
+{
+  // pick up after feature_id k
+  auto it = image.upper_bound(k);
+  bool found = (it != image.end());
+
+  // if found, copy new features to image_new and remove from image
+  if (found) {
+    image_new.insert(it, image.end());
+    image.erase(it, image.end());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
 state_horizon_t FeatureSelector::generateFutureHorizon(
                                         const std_msgs::Header& header,
                                         int nrImuMeasurements,
@@ -150,7 +177,6 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
                                             const image_t& image,
                                             const state_horizon_t& state_kkH)
 {
-  //initialize the return map, Delta_ells
   std::map<int, omega_horizon_t> Delta_ells;
 
   // convenience: (yet-to-be-corrected) transformation
