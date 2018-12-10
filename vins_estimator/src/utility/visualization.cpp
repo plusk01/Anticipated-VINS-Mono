@@ -248,8 +248,10 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
     {
         int used_num;
         used_num = it_per_id.feature_per_frame.size();
-        if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
+        if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2)) {
+            // if (it_per_id.start_frame != WINDOW_SIZE) ROS_WARN("WHHATTT??");
             continue;
+        }
         if (it_per_id.start_frame > WINDOW_SIZE * 3.0 / 4.0 || it_per_id.solve_flag != 1)
             continue;
         int imu_i = it_per_id.start_frame;

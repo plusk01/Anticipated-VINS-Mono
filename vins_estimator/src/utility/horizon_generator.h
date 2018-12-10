@@ -65,8 +65,8 @@ private:
   ros::Publisher pub_horizon_;
 
   // extrinsic parameters: camera frame w.r.t imu frame
-  Eigen::Quaterniond q_imu2cam_;
-  Eigen::Vector3d t_imu2cam_;
+  Eigen::Quaterniond q_IC_;
+  Eigen::Vector3d t_IC_;
 
   // struct and container for ground truth data read from CSV
   typedef struct {
