@@ -16,10 +16,13 @@
 #include <camodocal/camera_models/Camera.h>
 #include <camodocal/camera_models/CameraFactory.h>
 
+#include "nanoflann.hpp"
+
 #include "utility/utility.h"
 #include "utility/state_defs.h"
 #include "utility/horizon_generator.h"
 
+#include "feature_manager.h"
 #include "estimator.h"
 
 class FeatureSelector
@@ -92,6 +95,34 @@ private:
   Eigen::Vector3d ak1_; ///< latest accel measurement, k+1 (from IMU)
   Eigen::Vector3d wk1_; ///< latest ang. vel. measurement, k+1 (from IMU)
 
+  // nanoflann kdtree for guessing depth from existing landmarks
+  struct PointCloud
+  {
+    PointCloud(const std::vector<std::pair<double,double>>& dataset) : pts(dataset) {};
+    const std::vector<std::pair<double,double>>& pts;
+
+    // Must return the number of data points
+    inline size_t kdtree_get_point_count() const { return pts.size(); }
+
+    // Returns the dim'th component of the idx'th point in the class:
+    // Since this is inlined and the "dim" argument is typically an immediate value, the
+    //  "if/else's" are actually solved at compile time.
+    inline double kdtree_get_pt(const size_t idx, const size_t dim) const
+    {
+        if (dim == 0) return pts[idx].first;
+        else if (dim == 1) return pts[idx].second;
+    }
+
+    // Optional bounding-box computation: return false to default to a standard bbox computation loop.
+    //   Return true if the BBOX was already computed by the class and returned in "bb" so it can be avoided to redo it again.
+    //   Look at bb.size() to find out the expected dimensionality (e.g. 2 or 3 for point clouds)
+    template <class BBOX>
+    bool kdtree_get_bbox(BBOX& /* bb */) const { return false; }
+
+  };
+  typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointCloud>, PointCloud, 2/*dim*/> my_kd_tree_t;
+  std::unique_ptr<my_kd_tree_t> kdtree_;
+
   /**
    * @brief      Generate a future state horizon from k+1 to k+H
    *
@@ -123,6 +154,10 @@ private:
    * @return     True if the pixels are within the FOV
    */
   bool inFOV(const Eigen::Vector2d& p);
+
+  void initKDTree();
+
+  double findNNDepth(double u, double v);
 
   /**
    * @brief      Calculate the expected info gain from robot motion

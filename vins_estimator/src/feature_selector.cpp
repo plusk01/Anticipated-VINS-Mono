@@ -158,17 +158,20 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
   const auto& t_WC_k1 = state_k1_.first.segment<3>(xPOS) + state_k1_.second * t_IC_;
   const auto& q_WC_k1 = state_k1_.second * q_IC_;
 
+  initKDTree();
+
   for (const auto& fpair : image) {
 
     // there is only one camera, so we expect only one vector per feature
     constexpr int c = 0;
 
-    // extract feature id and bearing vector from obnoxious data structure
+    // extract feature id and nip vector from obnoxious data structure
     int feature_id = fpair.first;
-    Eigen::Vector3d feature = fpair.second[c].second.head<3>().normalized();
+    Eigen::Vector3d feature = fpair.second[c].second.head<3>(); // calibrated [u v 1]
 
-    // TODO: Scale bearing vector by depth
-    feature *= 1.0;
+    // scale bearing vector by depth
+    double d = findNNDepth(feature.coeff(0), feature.coeff(1));
+    feature = feature.normalized() * d;
 
     // Estimated position of the landmark w.r.t the world frame
     auto pell = t_WC_k1 + q_WC_k1 * feature;
@@ -281,6 +284,71 @@ bool FeatureSelector::inFOV(const Eigen::Vector2d& p)
   int v = std::round(p.coeff(1));
   return (border <= u && u < m_camera_->imageWidth() - border) && 
          (border <= v && v < m_camera_->imageHeight() - border);
+}
+
+// ----------------------------------------------------------------------------
+
+void FeatureSelector::initKDTree()
+{
+  // setup dataset
+  static std::vector<std::pair<double, double>> dataset;
+  dataset.clear(); dataset.reserve(estimator_.f_manager.feature.size());
+
+  // copied from visualization.cpp, pubPointCloud
+  for (const auto& it_per_id : estimator_.f_manager.feature) {
+
+    // ignore features if they haven't been around for a while or they're not stable
+    int used_num = it_per_id.feature_per_frame.size();
+    if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2)) continue;
+    if (it_per_id.start_frame > WINDOW_SIZE * 3.0 / 4.0 || it_per_id.solve_flag != 1) continue;
+
+    // TODO: Why 0th frame?
+    int imu_i = it_per_id.start_frame;
+    Eigen::Vector3d pts_i = it_per_id.feature_per_frame[0].point * it_per_id.estimated_depth;
+    Eigen::Vector3d w_pts_i = estimator_.Rs[imu_i] * (estimator_.ric[0] * pts_i + estimator_.tic[0]) + estimator_.Ps[imu_i];
+
+    // w_pts_i is the position of the landmark w.r.t. the world
+    // transform it so that it is the pos of the landmark w.r.t imu frame at x_k+1
+    Eigen::Vector3d p_IL_k1 = state_k1_.second.inverse() * (w_pts_i - state_k1_.first.segment<3>(xPOS));
+    Eigen::Vector3d p_CL_k1 = q_IC_.inverse() * (p_IL_k1 - t_IC_);
+    
+    // project back to nip of the camera at time k+1
+    w_pts_i = p_CL_k1 / p_CL_k1.coeff(2);
+    double x = w_pts_i.coeff(0), y = w_pts_i.coeff(1);
+
+    dataset.push_back(std::make_pair(x, y));
+  }
+
+  // point cloud adapter for currently tracked landmarks in PGO
+  // keep as static because kdtree uses a reference to the cloud.
+  // Note that this works because dataset is also static
+  static PointCloud cloud(dataset);
+
+  // create the kd-tree and index the data
+  kdtree_.reset(new my_kd_tree_t(2/* dim */, cloud,
+                nanoflann::KDTreeSingleIndexAdaptorParams(10 /* max leaf */)));
+  kdtree_->buildIndex();
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::findNNDepth(double x, double y)
+{
+  // build query
+  double query_pt[2] = { x, y };
+
+  // do a knn search
+  const size_t num_results = 1;
+  size_t ret_index;
+  double out_dist_sqr;
+  nanoflann::KNNResultSet<double> resultSet(num_results);
+  resultSet.init(&ret_index, &out_dist_sqr);
+  kdtree_->findNeighbors(resultSet, &query_pt[0], nanoflann::SearchParams(10));
+
+  // std::cout << "knnSearch(nn="<<num_results<<"): \n";
+  // std::cout << "ret_index=" << ret_index << " out_dist_sqr=" << out_dist_sqr << endl;
+
+  return 1.0;
 }
 
 // ----------------------------------------------------------------------------
