@@ -95,7 +95,9 @@ private:
   Eigen::Vector3d ak1_; ///< latest accel measurement, k+1 (from IMU)
   Eigen::Vector3d wk1_; ///< latest ang. vel. measurement, k+1 (from IMU)
 
-  // nanoflann kdtree for guessing depth from existing landmarks
+  /**
+   * @brief Dataset adapter for nanoflann
+   */
   struct PointCloud
   {
     PointCloud(const std::vector<std::pair<double,double>>& dataset) : pts(dataset) {};
@@ -120,6 +122,7 @@ private:
     bool kdtree_get_bbox(BBOX& /* bb */) const { return false; }
 
   };
+  // nanoflann kdtree for guessing depth from existing landmarks
   typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointCloud>, PointCloud, 2/*dim*/> my_kd_tree_t;
   std::unique_ptr<my_kd_tree_t> kdtree_;
 
@@ -155,9 +158,28 @@ private:
    */
   bool inFOV(const Eigen::Vector2d& p);
 
+  /**
+   * @brief      Initialize the nanoflann kd tree used to guess
+   *             depths of new features based on their neighbors.
+   *
+   * @return     A vector of depths (of PGO features) to be used
+   *             return the depth once a neighbor has been found
+   *             (see findNNDepth).
+   */
   std::vector<double> initKDTree();
 
-  double findNNDepth(const std::vector<double>& depths, double u, double v);
+  /**
+   * @brief      Guess the depth of a new feature bearing vector by
+   *             finding the nearest neighbor in the point cloud
+   *             currently maintained by VINS-Mono and using its depth.
+   *
+   * @param[in]  depths  Depths of VINS-Mono features returned by iniKDTree
+   * @param[in]  x       the normalized image plane x direction (calib pixel)
+   * @param[in]  y       the normalized image plane y direction (calib pixel)
+   *
+   * @return     the guessed depth of the new feature
+   */
+  double findNNDepth(const std::vector<double>& depths, double x, double y);
 
   /**
    * @brief      Calculate the expected info gain from robot motion
