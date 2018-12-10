@@ -153,10 +153,6 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
   //initialize the return map, Delta_ells
   std::map<int, omega_horizon_t> Delta_ells;
 
-  // pull out information we will need for visibility check
-  int maxU = m_camera_->imageWidth();  // max u pixel to stay in frame
-  int maxV = m_camera_->imageHeight(); // max v pixel to stay in frame
-
   // convenience: (yet-to-be-corrected) transformation
   // of camera frame w.r.t world frame at time k+1
   const auto& t_WC_k1 = state_k1_.first.segment<3>(xPOS) + state_k1_.second * t_IC_;
@@ -180,6 +176,18 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
     //
     // Forward-simulate the feature bearing vector over the horizon
     //
+    
+    // keep count of how many camera poses could see this landmark.
+    // We know it's visible in at least the current (k+1) frame.
+    int numVisible = 1;
+
+    // for storing the necessary blocks for the Delta_ell information matrix
+    // NOTE: We delay computation for h=k+1 until absolutely necessary.
+    Eigen::Matrix<double, 3, 3*HORIZON> Ch; // Ch == BtB_h in report
+    Ch.setZero();
+
+    // Also sum up the Ch blocks for EtE;
+    Eigen::Matrix3d EtE = Eigen::Matrix3d::Zero();
 
     // NOTE: start forward-simulating the landmark projection from k+2
     // (we have the frame k+1 projection, since that's where it came from)
@@ -197,37 +205,69 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
       Eigen::Vector2d pixels;
       m_camera_->spaceToPlane(uell, pixels);
 
-      // TODO: Just skip this iter?
-      if (inFOV(pixels));
+      // If not visible from this pose, skip
+      if (!inFOV(pixels)) continue;
 
+      // Calculate sub-block of Delta_ell (zero-indexing)
+      Eigen::Matrix3d Bh = Utility::skewSymmetric(uell)*((q_WC_h*q_IC_).inverse()).toRotationMatrix();
+      Ch.block<3, 3>(0, 3*(h-1)) = Bh.transpose()*Bh;
 
+      // Sum up block for EtE
+      EtE += Ch.block<3, 3>(0, 3*(h-1));
 
-
+      ++numVisible;
     }
 
+    // If we don't expect to be able to triangulate a point
+    // then it is not useful. By not putting this feature in
+    // the output map, we are effectively getting rid of it now.
+    if (numVisible == 1) continue;
 
-    // initialize F,E to have as many blocks as visible pixels for this feature
-    Eigen::MatrixXd F = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),9*(HORIZON+1));
-    Eigen::MatrixXd E = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),3);
-    int visibleCounter = 0;
-    // calculate F,E from Eq. 20 in paper
-    for (int h=1; h<=HORIZON; ++h)
-    {
-      if (pixelProjection(2,h) == 1)
-      {
-        Eigen::Vector3d u_kl;
-        u_kl << p_lc.col(h)[0]/p_lc.col(h)[2], p_lc.col(h)[1]/p_lc.col(h)[2], 1;
-        u_kl.normalize();
-        Eigen::Matrix3d u_klSkew = Utility::skewSymmetric(u_kl);
-        Eigen::Quaterniond qh = state_kkH[h].second;
-        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*(qh*q_IC_).inverse();
-        E.block<3,3>(3*visibleCounter,0)= -F.block<3,3>(3*visibleCounter,9*h);
-        visibleCounter++;
+    // Since the feature can be triangulated, we now do the computation that
+    // we put off before forward-simulating the landmark projection:
+    // we calculate Ch for h=k+1 (the frame where the feature was detected)
+    Eigen::Matrix3d Bh = Utility::skewSymmetric(feature.normalized())
+                                                *((q_WC_k1*q_IC_).inverse()).toRotationMatrix();
+    Ch.block<3, 3>(0, 0) = Bh.transpose()*Bh;
+
+    // add information to EtE
+    EtE += Ch.block<3, 3>(0, 0);
+
+    // Compute landmark covariance (should be invertible)
+    Eigen::Matrix3d W = EtE.inverse();
+
+    //
+    // Build Delta_ell for this Feature (see support_files/report)
+    //
+
+    omega_horizon_t Delta_ell = omega_horizon_t::Zero();
+
+    // col-wise for efficiency
+    for (int j=1; j<=HORIZON; ++j) {
+      // for convenience
+      Eigen::Ref<Eigen::Matrix3d> Cj = Ch.block<3, 3>(0, 3*(j-1));
+
+      for (int i=j; i<=HORIZON; ++i) { // NOTE: i=j for lower triangle
+        // for convenience
+        Eigen::Ref<Eigen::Matrix3d> Ci = Ch.block<3, 3>(0, 3*(i-1));
+        Eigen::Matrix3d Dij = Ci*W*Cj.transpose();
+
+        if (i == j) {
+          // diagonal
+          Delta_ell.block<3, 3>(9*i, 9*j) = Ci - Dij;
+        } else {
+          // lower triangle
+          Delta_ell.block<3, 3>(9*i, 9*j) = -Dij;
+
+          // upper triangle
+          Delta_ell.block<3, 3>(9*j, 9*i) = -Dij.transpose();
+        }
+
       }
     }
 
-    // Calculate Delta_ells from Eq. 23 in paper
-    Delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
+    // Store this information matrix with its associated feature ID
+    Delta_ells[feature_id] = Delta_ell;
   }
   return Delta_ells;
 }

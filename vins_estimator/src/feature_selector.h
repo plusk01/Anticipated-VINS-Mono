@@ -116,6 +116,15 @@ private:
                               const image_t& image, const state_horizon_t& state_kkH);
 
   /**
+   * @brief      Check if the pixel location is within the field of view
+   *
+   * @param[in]  p     The 2-vector with pixels (u,v)
+   *
+   * @return     True if the pixels are within the FOV
+   */
+  bool inFOV(const Eigen::Vector2d& p);
+
+  /**
    * @brief      Calculate the expected info gain from robot motion
    *
    * @param[in]  x_kkH              The horizon (rotations are needed)

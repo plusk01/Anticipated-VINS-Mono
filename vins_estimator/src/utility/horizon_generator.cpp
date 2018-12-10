@@ -128,7 +128,7 @@ void HorizonGenerator::visualize(const std_msgs::Header& header,
                                  const state_horizon_t& state_kkH)
 {
   // Don't waste cycles unnecessarily
-  if (pub_horizon_.getNumPublishers() == 0) return;
+  if (pub_horizon_.getNumSubscribers() == 0) return;
 
   nav_msgs::Path path;
   path.header = header;

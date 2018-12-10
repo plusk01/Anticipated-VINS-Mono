@@ -220,8 +220,7 @@ For simplicity of notation, we drop the subscripts of $\A_{h,l}$ and $\B_{h,l}$ 
 \end{bmatrix}\\
 &=
 \begin{bmatrix}
-\g\zero_{3\times9}&\g\zero_{3\times3}&\g\zero_{3\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
-\g\zero_{6\times9}&\g\zero_{6\times3}&\g\zero_{6\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
+\g\zero_{9\times9}&\g\zero_{9\times3}&\g\zero_{9\times6}&\g\cdots&\g\zero_{9\times3}&\g\zero_{9\times6}\\
 \g\zero_{3\times9}& \cob\B_1^\top\B_1   &\cob\zero_{3\times6} &\cdots   &\zero_{3\times3}&\zero_{3\times6}\\
 \g\zero_{6\times9}& \cob\zero_{6\times3}&\cob\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
 &&&\ddots&&\\
@@ -245,8 +244,7 @@ First, we note that the second addend in the Schur complement in~\eqref{eqn:schu
 \F_l^\top\E_l(\E_l^\top\E_l)^{-1}\E_l^\top\F_l = &\\
 &\quad
 \begin{bmatrix}
-\g\zero_{3\times9}&\g\zero_{3\times3}&\g\zero_{3\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
-\g\zero_{6\times9}&\g\zero_{6\times3}&\g\zero_{6\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
+\g\zero_{9\times9}&\g\zero_{9\times3}&\g\zero_{9\times6}&\g\cdots&\g\zero_{9\times3}&\g\zero_{9\times6}\\
 \g\zero_{3\times9}& \C_1\W\C_1^\top   &\zero_{3\times6} &\cdots   & \C_1\W\C_H^\top&\zero_{3\times6}\\
 \g\zero_{6\times9}& \zero_{6\times3}&\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
 &\vdots&&\ddots&\vdots&\\
@@ -256,19 +254,18 @@ First, we note that the second addend in the Schur complement in~\eqref{eqn:schu
 \end{flalign*}
 where $\C_i=\B_i^\top\B_i$ and $\W=(\E_l^\top\E_l)^{-1}$ (which is only invertible if a landmark was seen by more than one future pose).
 Therefore, the final form of $\Delta_l$ is
-\begin{flalign*}
+\begin{flalign}\label{eqn:delta-ell}
 &
 \Delta_l = &\\
 &\quad
 \begin{bmatrix}
-\g\zero_{3\times9}&\g\zero_{3\times3}&\g\zero_{3\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
-\g\zero_{6\times9}&\g\zero_{6\times3}&\g\zero_{6\times6}&\g\cdots&\g\zero_{3\times3}&\g\zero_{3\times6}\\
-\g\zero_{3\times9}& \C_1-\D_{11}   &\zero_{3\times6} &\cdots   & \D_{1H}&\zero_{3\times6}\\
+\g\zero_{9\times9}&\g\zero_{9\times3}&\g\zero_{9\times6}&\g\cdots&\g\zero_{9\times3}&\g\zero_{9\times6}\\
+\g\zero_{3\times9}& \C_1-\D_{11}   &\zero_{3\times6} &\cdots   & -\D_{1H}&\zero_{3\times6}\\
 \g\zero_{6\times9}& \zero_{6\times3}&\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
 &\vdots&&\ddots&\vdots&\\
-\g\zero_{3\times9}& \D_{H1}   &\zero_{3\times6} &\cdots   & \C_H-\D_{HH}&\zero_{3\times6}\\
+\g\zero_{3\times9}& -\D_{H1}   &\zero_{3\times6} &\cdots   & \C_H-\D_{HH}&\zero_{3\times6}\\
 \g\zero_{6\times9}& \zero_{6\times3}&\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
-\end{bmatrix},
-\end{flalign*}
+\end{bmatrix},\nonumber
+\end{flalign}
 where $\D_{ij}=\C_i\W\C_j^\top$.
 Finally, we note that when the camera at pose $\xhat_h$ did not see the $l$-th landmark, the corresponding rows and columns are zeroed out because that landmark offers no information for those state estimates.
