@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
     nav_msgs
     tf
     cv_bridge
+    camera_model
     )
 
 find_package(OpenCV REQUIRED)
@@ -28,6 +29,7 @@ find_package(Eigen3)
 include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
+  lib/nanoflann
 )
 
 catkin_package()

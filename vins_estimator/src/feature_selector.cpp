@@ -1,7 +1,8 @@
 #include "feature_selector.h"
 #include <math.h> // log
 
-FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
+FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator, 
+                                 const std::string& calib_file)
 : nh_(nh), estimator_(estimator)
 {
 
@@ -10,6 +11,13 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator)
 
   // set parameters for the horizon generator (extrinsics -- for visualization)
   hgen_->setParameters(estimator_.ric[0], estimator_.tic[0]);
+
+  // save extrinsics (for feature info step)
+  q_IC_ = estimator_.ric[0];
+  t_IC_ = estimator_.tic[0];
+
+  // create camera model from calibration YAML file
+  m_camera_ = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
 }
 
 // ----------------------------------------------------------------------------
@@ -99,17 +107,11 @@ void FeatureSelector::select(image_t& image, int kappa,
   auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
-  Eigen::Vector2i imageDimensions;
-  imageDimensions << 640,480;
-  Eigen::Matrix3d cameraCalibration;
-  cameraCalibration << 1, 1, 1, // placeholder
-                       0, 1, 1,
-                       0, 0, 1;
-  Eigen::Matrix3d RcamIMU = Eigen::Matrix3d::Identity();
-  auto Delta_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
+  auto Delta_ells = calcInfoFromFeatures(image, state_kkH);
 
   // Calculate the information content of each of the currently used features
-  auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH, imageDimensions, cameraCalibration, RcamIMU);
+  std::map<int, omega_horizon_t> Delta_used_ells;
+  // auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH);
 
 
   //
@@ -144,91 +146,237 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 }
 
 // ----------------------------------------------------------------------------
-
-delta_ls FeatureSelector::calcInfoFromFeatures(const image_t& image, const state_horizon_t& state_kkH, Eigen::Vector2i imageDimensions, Eigen::Matrix3d cameraCalibration, Eigen::Matrix3d RcamIMU)
+std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
+                                            const image_t& image,
+                                            const state_horizon_t& state_kkH)
 {
-  //initialize the return map, delta_ells
-  delta_ls delta_ells;
-  // pull out information we will need for visibility check
-  int maxU = imageDimensions[0]; // max u pixel to stay in frame
-  int maxV = imageDimensions[1]; // max v pixel to stay in frame
-  std::map<int,Eigen::Vector3d> featureBearingVectors; // feature bearing vector w.r.t camera
-  std::map<int,Eigen::Vector3d> worldFeatureBearingVectors; // feature bearing vectors w.r.t origin
-  int camera_id = 0;
-  // iterate over all features and make bearing vectors for each feature
-  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
-   feature!=image.end(); ++feature)
-  {
-    int feature_id = feature->first;
-    featureBearingVectors[feature_id] << feature->second[camera_id].second(0,0),
-                                   feature->second[camera_id].second(1,0),
-                                   feature->second[camera_id].second(2,0);
-    featureBearingVectors[feature_id].normalized();
-    // TODO: Make a better depth guess
-  }
-  // iterate over all features over horizon and find Delta_ells
-  // To do this, we will
-  // ******** project pixel locations from states horizon
-  // ******** check visibility on whether feature is expected to stay in the frame
-  for (std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>::const_iterator feature=image.begin();
-   feature!=image.end(); ++feature)
-  {
-    int feature_id = feature->first;
-    // for each feature, reinitialize
-    // ******* pixelProjection (vector consists of u,v, and visibility check flag (1 = visible, 0 = not visible))
-    // ******* p_lc (position of landmark w.r.t new camera position)
-    Eigen::MatrixXd pixelProjection(3,HORIZON);
-    Eigen::MatrixXd p_lc(3,HORIZON);
-    // find feature bearing vector at time k = 0 in the world frame
-    worldFeatureBearingVectors[feature_id] = featureBearingVectors[feature_id] + state_kkH[0].first.segment<3>(xPOS);
-    for (int h=0; h<HORIZON; ++h)
-    {
-      // calculate p_lc and pizelProjection
-      p_lc.col(h) = worldFeatureBearingVectors[feature_id] - state_kkH[h].first.segment<3>(xPOS);
-      pixelProjection(0,h) = cameraCalibration(0,0)*(p_lc(0,h)/p_lc(2,h)) + cameraCalibration(0,2);// u pixel projection
-      pixelProjection(1,h) = cameraCalibration(1,1)*(p_lc(1,h)/p_lc(2,h)) + cameraCalibration(1,2);// v pixel projection
-      // Visibility check
-      if (pixelProjection(0,h) > 0 && pixelProjection(1,h) > 0 && pixelProjection(0,h) < maxU && pixelProjection(1,h) < maxV)
-      {
-        pixelProjection(2,h) = 1;
-      }
-      else
-      {
-        pixelProjection(2,h) = 0;
+  //initialize the return map, Delta_ells
+  std::map<int, omega_horizon_t> Delta_ells;
+
+  // convenience: (yet-to-be-corrected) transformation
+  // of camera frame w.r.t world frame at time k+1
+  const auto& t_WC_k1 = state_k1_.first.segment<3>(xPOS) + state_k1_.second * t_IC_;
+  const auto& q_WC_k1 = state_k1_.second * q_IC_;
+
+  auto depthsByIdx = initKDTree();
+
+  for (const auto& fpair : image) {
+
+    // there is only one camera, so we expect only one vector per feature
+    constexpr int c = 0;
+
+    // extract feature id and nip vector from obnoxious data structure
+    int feature_id = fpair.first;
+    Eigen::Vector3d feature = fpair.second[c].second.head<3>(); // calibrated [u v 1]
+
+    // scale bearing vector by depth
+    double d = findNNDepth(depthsByIdx, feature.coeff(0), feature.coeff(1));
+    feature = feature.normalized() * d;
+
+    // Estimated position of the landmark w.r.t the world frame
+    auto pell = t_WC_k1 + q_WC_k1 * feature;
+
+    //
+    // Forward-simulate the feature bearing vector over the horizon
+    //
+    
+    // keep count of how many camera poses could see this landmark.
+    // We know it's visible in at least the current (k+1) frame.
+    int numVisible = 1;
+
+    // for storing the necessary blocks for the Delta_ell information matrix
+    // NOTE: We delay computation for h=k+1 until absolutely necessary.
+    Eigen::Matrix<double, 3, 3*HORIZON> Ch; // Ch == BtB_h in report
+    Ch.setZero();
+
+    // Also sum up the Ch blocks for EtE;
+    Eigen::Matrix3d EtE = Eigen::Matrix3d::Zero();
+
+    // NOTE: start forward-simulating the landmark projection from k+2
+    // (we have the frame k+1 projection, since that's where it came from)
+    for (int h=2; h<=HORIZON; ++h) { 
+
+      // convenience: future camera frame (k+h) w.r.t world frame
+      const auto& t_WC_h = state_kkH[h].first.segment<3>(xPOS) + state_kkH[h].second * t_IC_;
+      const auto& q_WC_h = state_kkH[h].second * q_IC_;
+
+      // create bearing vector of feature w.r.t camera pose h
+      Eigen::Vector3d uell = (q_WC_h.inverse() * (pell - t_WC_h)).normalized();
+
+      // TODO: Maybe flip the problem so we don't have to do this every looped-loop
+      // project to pixels so we can perform visibility check
+      Eigen::Vector2d pixels;
+      m_camera_->spaceToPlane(uell, pixels);
+
+      // If not visible from this pose, skip
+      if (!inFOV(pixels)) continue;
+
+      // Calculate sub-block of Delta_ell (zero-indexing)
+      Eigen::Matrix3d Bh = Utility::skewSymmetric(uell)*((q_WC_h*q_IC_).inverse()).toRotationMatrix();
+      Ch.block<3, 3>(0, 3*(h-1)) = Bh.transpose()*Bh;
+
+      // Sum up block for EtE
+      EtE += Ch.block<3, 3>(0, 3*(h-1));
+
+      ++numVisible;
+    }
+
+    // If we don't expect to be able to triangulate a point
+    // then it is not useful. By not putting this feature in
+    // the output map, we are effectively getting rid of it now.
+    if (numVisible == 1) continue;
+
+    // Since the feature can be triangulated, we now do the computation that
+    // we put off before forward-simulating the landmark projection:
+    // we calculate Ch for h=k+1 (the frame where the feature was detected)
+    Eigen::Matrix3d Bh = Utility::skewSymmetric(feature.normalized())
+                                                *((q_WC_k1*q_IC_).inverse()).toRotationMatrix();
+    Ch.block<3, 3>(0, 0) = Bh.transpose()*Bh;
+
+    // add information to EtE
+    EtE += Ch.block<3, 3>(0, 0);
+
+    // Compute landmark covariance (should be invertible)
+    Eigen::Matrix3d W = EtE.inverse();
+
+    //
+    // Build Delta_ell for this Feature (see support_files/report)
+    //
+
+    omega_horizon_t Delta_ell = omega_horizon_t::Zero();
+
+    // col-wise for efficiency
+    for (int j=1; j<=HORIZON; ++j) {
+      // for convenience
+      Eigen::Ref<Eigen::Matrix3d> Cj = Ch.block<3, 3>(0, 3*(j-1));
+
+      for (int i=j; i<=HORIZON; ++i) { // NOTE: i=j for lower triangle
+        // for convenience
+        Eigen::Ref<Eigen::Matrix3d> Ci = Ch.block<3, 3>(0, 3*(i-1));
+        Eigen::Matrix3d Dij = Ci*W*Cj.transpose();
+
+        if (i == j) {
+          // diagonal
+          Delta_ell.block<3, 3>(9*i, 9*j) = Ci - Dij;
+        } else {
+          // lower triangle
+          Delta_ell.block<3, 3>(9*i, 9*j) = -Dij;
+
+          // upper triangle
+          Delta_ell.block<3, 3>(9*j, 9*i) = -Dij.transpose();
+        }
+
       }
     }
-    // initialize F,E to have as many blocks as visible pixels for this feature
-    Eigen::MatrixXd F = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),9*(HORIZON+1));
-    Eigen::MatrixXd E = Eigen::MatrixXd::Zero(3*pixelProjection.row(2).nonZeros(),3);
-    int visibleCounter = 0;
-    // calculate F,E from Eq. 20 in paper
-    for (int h=1; h<=HORIZON; ++h)
-    {
-      if (pixelProjection(2,h) == 1)
-      {
-        Eigen::Vector3d u_kl;
-        u_kl << p_lc.col(h)[0]/p_lc.col(h)[2], p_lc.col(h)[1]/p_lc.col(h)[2], 1;
-        u_kl.normalize();
-        Eigen::Matrix3d u_klSkew;
-        u_klSkew << 0,        -u_kl[2], u_kl[1],
-                    u_kl[2],  0,        u_kl[0],
-                    -u_kl[1], u_kl[0],  0;
-        Eigen::Quaterniond qh = state_kkH[h].second;
-        qh.normalize();
-        Eigen::Matrix3d Rh = qh.toRotationMatrix();
-        F.block<3,3>(3*visibleCounter,9*h) = u_klSkew*((Rh*RcamIMU).transpose());
-        E.block<3,3>(3*visibleCounter,0)= -u_klSkew*((Rh*RcamIMU).transpose());
-        visibleCounter++;
-      }
-    }
-    // Calculate delta_ells from Eq. 23 in paper
-    delta_ells[feature_id] = F.transpose()*F-F.transpose()*E*(E.transpose()*E).inverse()*E.transpose()*F;
+
+    // Store this information matrix with its associated feature ID
+    Delta_ells[feature_id] = Delta_ell;
   }
-  return delta_ells;
+  return Delta_ells;
 }
 
+// ----------------------------------------------------------------------------
+
+bool FeatureSelector::inFOV(const Eigen::Vector2d& p)
+{
+  constexpr int border = 0; // TODO: Could be good to have a border here
+  int u = std::round(p.coeff(0));
+  int v = std::round(p.coeff(1));
+  return (border <= u && u < m_camera_->imageWidth() - border) && 
+         (border <= v && v < m_camera_->imageHeight() - border);
+}
+
+// ----------------------------------------------------------------------------
+
+std::vector<double> FeatureSelector::initKDTree()
+{
+  // setup dataset
+  static std::vector<std::pair<double, double>> dataset;
+  dataset.clear(); dataset.reserve(estimator_.f_manager.feature.size());
+
+  //
+  // Build the point cloud of bearing vectors w.r.t camera frame k+1
+  //
+  
+  // we want a vector of depths that match the ordering of the dataset
+  // for lookup after the knn have been found
+  std::vector<double> depths;
+  depths.reserve(estimator_.f_manager.feature.size());
+
+  // copied from visualization.cpp, pubPointCloud
+  for (const auto& it_per_id : estimator_.f_manager.feature) {
+
+    // ignore features if they haven't been around for a while or they're not stable
+    int used_num = it_per_id.feature_per_frame.size();
+    if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2)) continue;
+    if (it_per_id.start_frame > WINDOW_SIZE * 3.0 / 4.0 || it_per_id.solve_flag != 1) continue;
+
+    // TODO: Why 0th frame?
+    int imu_i = it_per_id.start_frame;
+    Eigen::Vector3d pts_i = it_per_id.feature_per_frame[0].point * it_per_id.estimated_depth;
+    Eigen::Vector3d w_pts_i = estimator_.Rs[imu_i] * (estimator_.ric[0] * pts_i + estimator_.tic[0]) + estimator_.Ps[imu_i];
+
+    // w_pts_i is the position of the landmark w.r.t. the world
+    // transform it so that it is the pos of the landmark w.r.t camera frame at x_k+1
+    Eigen::Vector3d p_IL_k1 = state_k1_.second.inverse() * (w_pts_i - state_k1_.first.segment<3>(xPOS));
+    Eigen::Vector3d p_CL_k1 = q_IC_.inverse() * (p_IL_k1 - t_IC_);
+    
+    // project back to nip of the camera at time k+1
+    w_pts_i = p_CL_k1 / p_CL_k1.coeff(2);
+    double x = w_pts_i.coeff(0), y = w_pts_i.coeff(1);
+
+    dataset.push_back(std::make_pair(x, y));
+    depths.push_back(it_per_id.estimated_depth);
+  }
+
+  // point cloud adapter for currently tracked landmarks in PGO
+  // keep as static because kdtree uses a reference to the cloud.
+  // Note that this works because dataset is also static
+  static PointCloud cloud(dataset);
+
+  // create the kd-tree and index the data
+  kdtree_.reset(new my_kd_tree_t(2/* dim */, cloud,
+                nanoflann::KDTreeSingleIndexAdaptorParams(10 /* max leaf */)));
+  kdtree_->buildIndex();
+
+  // these are depths of PGO features by index of the dataset
+  return depths;
+}
+
+// ----------------------------------------------------------------------------
+
+double FeatureSelector::findNNDepth(const std::vector<double>& depths, 
+                                    double x, double y)
+{
+  // The point cloud and the query are expected to be in the normalized image
+  // plane (nip) of the camera at time k+1 (the frame the feature was detected in)
+
+  // If this happens, then the back end is initializing
+  if (depths.size() == 0) return 1.0;
+
+  // build query
+  double query_pt[2] = { x, y };
+
+  // do a knn search
+  // TODO: Considering avg multiple neighbors?
+  const size_t num_results = 1;
+  size_t ret_index = 0;
+  double out_dist_sqr;
+  nanoflann::KNNResultSet<double> resultSet(num_results);
+  resultSet.init(&ret_index, &out_dist_sqr);
+  kdtree_->findNeighbors(resultSet, &query_pt[0], nanoflann::SearchParams(10));
+
+  // std::cout << "knnSearch(nn="<<num_results<<"): \n";
+  // std::cout << "ret_index=" << ret_index << " out_dist_sqr=" << out_dist_sqr << endl;
+
+  return depths[ret_index];
+}
+
+// ----------------------------------------------------------------------------
+
 omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
-        const state_horizon_t& state_kkH, double nrImuMeasurements, double deltaImu)
+                                    const state_horizon_t& state_kkH,
+                                    double nrImuMeasurements, double deltaImu)
 {
   // ** Build the large information matrix over the horizon (eq 15).
   //

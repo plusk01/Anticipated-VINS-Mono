@@ -377,9 +377,9 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "vins_estimator");
     ros::NodeHandle n("~");
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
-    readParameters(n);
+    std::string config_file = readParameters(n);
     estimator.setParameter();
-    f_selector = std::make_shared<FeatureSelector>(n, estimator);
+    f_selector = std::make_shared<FeatureSelector>(n, estimator, config_file);
     f_selector->setParameters(ACC_N, ACC_W);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
