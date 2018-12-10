@@ -158,7 +158,7 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
   const auto& t_WC_k1 = state_k1_.first.segment<3>(xPOS) + state_k1_.second * t_IC_;
   const auto& q_WC_k1 = state_k1_.second * q_IC_;
 
-  initKDTree();
+  auto depthsByIdx = initKDTree();
 
   for (const auto& fpair : image) {
 
@@ -170,7 +170,7 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
     Eigen::Vector3d feature = fpair.second[c].second.head<3>(); // calibrated [u v 1]
 
     // scale bearing vector by depth
-    double d = findNNDepth(feature.coeff(0), feature.coeff(1));
+    double d = findNNDepth(depthsByIdx, feature.coeff(0), feature.coeff(1));
     feature = feature.normalized() * d;
 
     // Estimated position of the landmark w.r.t the world frame
@@ -197,8 +197,8 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
     for (int h=2; h<=HORIZON; ++h) { 
 
       // convenience: future camera frame (k+h) w.r.t world frame
-      const auto& t_WC_h = state_kkH[h].first.segment<3>(xPOS);
-      const auto& q_WC_h = state_kkH[h].second;
+      const auto& t_WC_h = state_kkH[h].first.segment<3>(xPOS) + state_kkH[h].second * t_IC_;
+      const auto& q_WC_h = state_kkH[h].second * q_IC_;
 
       // create bearing vector of feature w.r.t camera pose h
       Eigen::Vector3d uell = (q_WC_h.inverse() * (pell - t_WC_h)).normalized();
@@ -288,11 +288,20 @@ bool FeatureSelector::inFOV(const Eigen::Vector2d& p)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::initKDTree()
+std::vector<double> FeatureSelector::initKDTree()
 {
   // setup dataset
   static std::vector<std::pair<double, double>> dataset;
   dataset.clear(); dataset.reserve(estimator_.f_manager.feature.size());
+
+  //
+  // Build the point cloud of bearing vectors w.r.t camera frame k+1
+  //
+  
+  // we want a vector of depths that match the ordering of the dataset
+  // for lookup after the knn have been found
+  std::vector<double> depths;
+  depths.reserve(estimator_.f_manager.feature.size());
 
   // copied from visualization.cpp, pubPointCloud
   for (const auto& it_per_id : estimator_.f_manager.feature) {
@@ -308,7 +317,7 @@ void FeatureSelector::initKDTree()
     Eigen::Vector3d w_pts_i = estimator_.Rs[imu_i] * (estimator_.ric[0] * pts_i + estimator_.tic[0]) + estimator_.Ps[imu_i];
 
     // w_pts_i is the position of the landmark w.r.t. the world
-    // transform it so that it is the pos of the landmark w.r.t imu frame at x_k+1
+    // transform it so that it is the pos of the landmark w.r.t camera frame at x_k+1
     Eigen::Vector3d p_IL_k1 = state_k1_.second.inverse() * (w_pts_i - state_k1_.first.segment<3>(xPOS));
     Eigen::Vector3d p_CL_k1 = q_IC_.inverse() * (p_IL_k1 - t_IC_);
     
@@ -317,6 +326,7 @@ void FeatureSelector::initKDTree()
     double x = w_pts_i.coeff(0), y = w_pts_i.coeff(1);
 
     dataset.push_back(std::make_pair(x, y));
+    depths.push_back(it_per_id.estimated_depth);
   }
 
   // point cloud adapter for currently tracked landmarks in PGO
@@ -328,18 +338,29 @@ void FeatureSelector::initKDTree()
   kdtree_.reset(new my_kd_tree_t(2/* dim */, cloud,
                 nanoflann::KDTreeSingleIndexAdaptorParams(10 /* max leaf */)));
   kdtree_->buildIndex();
+
+  // these are depths of PGO features by index of the dataset
+  return depths;
 }
 
 // ----------------------------------------------------------------------------
 
-double FeatureSelector::findNNDepth(double x, double y)
+double FeatureSelector::findNNDepth(const std::vector<double>& depths, 
+                                    double x, double y)
 {
+  // The point cloud and the query are expected to be in the normalized image
+  // plane (nip) of the camera at time k+1 (the frame the feature was detected in)
+
+  // If this happens, then the back end is initializing
+  if (depths.size() == 0) return 1.0;
+
   // build query
   double query_pt[2] = { x, y };
 
   // do a knn search
+  // TODO: Considering avg multiple neighbors?
   const size_t num_results = 1;
-  size_t ret_index;
+  size_t ret_index = 0;
   double out_dist_sqr;
   nanoflann::KNNResultSet<double> resultSet(num_results);
   resultSet.init(&ret_index, &out_dist_sqr);
@@ -348,7 +369,7 @@ double FeatureSelector::findNNDepth(double x, double y)
   // std::cout << "knnSearch(nn="<<num_results<<"): \n";
   // std::cout << "ret_index=" << ret_index << " out_dist_sqr=" << out_dist_sqr << endl;
 
-  return 1.0;
+  return depths[ret_index];
 }
 
 // ----------------------------------------------------------------------------

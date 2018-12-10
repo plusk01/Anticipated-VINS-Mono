@@ -155,9 +155,9 @@ private:
    */
   bool inFOV(const Eigen::Vector2d& p);
 
-  void initKDTree();
+  std::vector<double> initKDTree();
 
-  double findNNDepth(double u, double v);
+  double findNNDepth(const std::vector<double>& depths, double u, double v);
 
   /**
    * @brief      Calculate the expected info gain from robot motion
