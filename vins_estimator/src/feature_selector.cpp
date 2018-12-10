@@ -380,8 +380,7 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
-  // omega_horizon_t Omega = Omega_kkH;
-
+  // *** next two lines not compiling...? 
   // for (const auto& Delta : Delta_used_ells) {
   //   Omega += Delta.second;
   // }
