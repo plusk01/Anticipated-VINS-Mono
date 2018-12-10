@@ -1,4 +1,5 @@
 #include "feature_selector.h"
+#include <math.h> // log
 
 FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator, 
                                  const std::string& calib_file)
@@ -45,7 +46,7 @@ void FeatureSelector::setNextStateFromImuPropagation(
   state_k_.first.segment<3>(xVEL) = estimator_.Vs[WINDOW_SIZE];
   state_k_.first.segment<3>(xB_A) = estimator_.Bas[WINDOW_SIZE];
   state_k_.second = estimator_.Rs[WINDOW_SIZE];
-  
+
 
   //
   // (yet-to-be-corrected) state of current frame
@@ -65,7 +66,7 @@ void FeatureSelector::setNextStateFromImuPropagation(
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::select(image_t& image, int kappa, 
+void FeatureSelector::select(image_t& image, int kappa,
         const std_msgs::Header& header, int nrImuMeasurements)
 {
   //
@@ -116,9 +117,9 @@ void FeatureSelector::select(image_t& image, int kappa,
   //
   // Attention: Select a subset of features that maximizes expected information
   //
-
   // removes poor feature choices from image
-  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
+  Eigen::VectorXd probFeatureTracked = Eigen::VectorXd::Constant(image.size(), 1.0); // PLACEHOLDER, Pipe in from tracker
+  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells, probFeatureTracked);
 
 
   // for next iteration
@@ -145,7 +146,6 @@ state_horizon_t FeatureSelector::generateFutureHorizon(
 }
 
 // ----------------------------------------------------------------------------
-
 std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
                                             const image_t& image,
                                             const state_horizon_t& state_kkH)
@@ -410,7 +410,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
 
   for (int h=1; h<=HORIZON; ++h) { // for consecutive frames in horizon
 
-    // convenience: frames (i, j) are a consecutive pair in horizon    
+    // convenience: frames (i, j) are a consecutive pair in horizon
     const auto& Qi = state_kkH[h-1].second;
     const auto& Qj = state_kkH[h].second;
 
@@ -520,70 +520,127 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
-          const omega_horizon_t& Omega_kkH,
-          const std::map<int, omega_horizon_t>& Delta_ells,
-          const std::map<int, omega_horizon_t>& Delta_used_ells)
+void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
+          const omega_horizon_t& Omega,
+          const delta_ls& Delta_ells,
+          const delta_ls& Delta_used_ells,
+          Eigen::VectorXd& probFeatureTracked)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
-  omega_horizon_t Omega = Omega_kkH;
-  for (const auto& Delta : Delta_used_ells) {
-    Omega += Delta.second;
-  }
+  // *** next two lines not compiling...? 
+  // for (const auto& Delta : Delta_used_ells) {
+  //   Omega += Delta.second;
+  // }
 
   // subset of most informative features
   image_t subset;
 
   // select the indices of the best features
-  for (int i=0; i<kappa; ++i) {
+  for (int i=0; i<kappa; ++i)
+  {
+    // compute upper bounds in form of <upperBoundValue, feature_ID>
+    // descending by upperBoundValue
 
-    // compute upper bounds
-    auto U = sortedUpperBounds(subset, Omega, Delta_ells);
-
+    std::map<double,int,std::greater<double>> upperBounds = sortedlogDetUB(Omega, Delta_ells,
+                                                            subset,image, probFeatureTracked);
+    // initialize the best cost function value and feature ID to worst case
+    double fMax = -1;
+    double lMax = -1;
+    // iterating through upperBounds in descending order, check each feature
+    for (auto& fpair : upperBounds) // why doesn't this work: (auto&& [first,second] : upperBounds)
+    {
+      double ub = fpair.first;
+      int feature_id = fpair.second;
+      // lazy evaluation: break if upper bound is less than the current best
+      //                                                 cost function value
+      if (ub < fMax)
+      {
+        break;
+      }
+      // calculate the cost function for each feature and store the best one
+      image_t proposedSubset = makeNewSubset(subset,feature_id,image);
+      double fValue = logDet(proposedSubset, Omega, Delta_ells, probFeatureTracked);
+      if (fValue > fMax)
+      {
+        fMax = fValue;
+        lMax = feature_id;
+      }
+    }
+    // add feature that returns the most information to the subset
+    image_t newSubset = makeNewSubset(subset,lMax,image); // placeholder
+    subset = newSubset;
   }
-
-  // return the subset
-  // subset.swap(image);
+  // return the subset to estimator_node.cpp
+  subset.swap(image);
+}
+// ----------------------------------------------------------------------------
+image_t FeatureSelector::makeNewSubset(image_t currentSubset, double featureIDToAdd,
+   image_t image) {
+  currentSubset[featureIDToAdd] = image[featureIDToAdd];
+  return currentSubset; // currentSubset is now the new subset
 }
 
 // ----------------------------------------------------------------------------
-
-std::vector<std::pair<int,double>> FeatureSelector::sortedUpperBounds(
-    const image_t& subset, const omega_horizon_t& Omega,
-    const std::map<int, omega_horizon_t>& Delta_ells)
+double FeatureSelector::logDet(image_t& currentSubset,
+                               const omega_horizon_t& Omega,
+                               const delta_ls& Delta_ells,
+                               Eigen::VectorXd& probFeatureTracked)
 {
-  return {};
+  // sum up second part of Eq. 9
+  omega_horizon_t Delta_ells_sum;
+  for (const auto& fpair : currentSubset) {
+    int feature_id = fpair.first;
+    Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureTracked[feature_id];
+  }
+  // use utility to calculate logdet efficiently
+  return Utility::logdet(Omega + Delta_ells_sum, true);
 }
 
 // ----------------------------------------------------------------------------
 
-double FeatureSelector::logDet(const omega_horizon_t& Omega,
-                               const omega_horizon_t& Delta_ell)
+std::map<double,int,std::greater<double>> FeatureSelector::sortedlogDetUB(const omega_horizon_t& Omega,
+                                 const delta_ls& Delta_ells, image_t& subset,
+                                 const image_t& image, Eigen::VectorXd& probFeatureTracked)
 {
-  return Utility::logdet(Omega + Delta_ell, true);
+  // returns a descending sorted map with upper bound as the first key, and
+  // feature ID as the value for all features in image
+  std::map<double,int,std::greater<double>> logDetUpperBound;
+  for (const auto& fpair : image)
+  {
+      int featureIDToAdd = fpair.first;
+      image_t proposedSubset = makeNewSubset(subset, featureIDToAdd, image);
+      omega_horizon_t Delta_ells_sum;
+      // sum up Eq. 9
+      for (const auto& fpair : proposedSubset)
+      {
+          int feature_id = fpair.first;
+          Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureTracked[feature_id];
+      }
+      omega_horizon_t costFunction = Omega + Delta_ells_sum;
+      // calculate upper bound according to Eq. 29
+      double logDetUBValue;
+      for (int i = 0; i < STATE_SIZE*(HORIZON+1); i++)
+      {
+          logDetUBValue += log(costFunction(i,i));
+      }
+      logDetUpperBound[logDetUBValue] = featureIDToAdd;
+  }
+  return logDetUpperBound;
 }
 
 // ----------------------------------------------------------------------------
-
-double FeatureSelector::logDetUB(const omega_horizon_t& Omega,
-                                 const omega_horizon_t& Delta_ell)
-{
-  return 0;
-}
-
-// ----------------------------------------------------------------------------
-
+// In case we have extra time for another cost function (though we know to be slower)
 double FeatureSelector::minEig(const omega_horizon_t& Omega,
-                               const omega_horizon_t& Delta_ell)
+                               const delta_ls& Delta_ells)
 {
   return 0;
 }
 
 // ----------------------------------------------------------------------------
-
+// In case we have extra time for another cost function (though we know to be slower)
 double FeatureSelector::minEigUB(const omega_horizon_t& Omega,
-                                 const omega_horizon_t& Delta_ell)
+                                 const delta_ls& Delta_ells)
 {
   return 0;
 }

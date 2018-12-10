@@ -146,6 +146,7 @@ private:
    *
    * @return     delta_ells (information matrix for each feature in image)
    */
+
   std::map<int, omega_horizon_t> calcInfoFromFeatures(
                               const image_t& image, const state_horizon_t& state_kkH);
 
@@ -209,27 +210,75 @@ private:
       double nrImuMeasurements, double deltaImu);
 
   omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
-  
-  std::vector<omega_horizon_t> calcInfoFromFeatures(const image_t& image);
 
-  void keepInformativeFeatures(image_t& image, int kappa,
+  /**
+   * @brief      Run lazy and greedy selection of features
+   *
+   * @param[in]  image              Feature data in this image
+   * @param[in]  kappa              Number of features to select
+   * @param[in]  Omega_kkH          IMU information matrix over horizon
+   * @param[in]  Delta_ells         Information matrices for each feature
+   * @param[in]  probFeatureTracked    Probability that feature is tracked
+   *
+   * @return     void               Swaps out image set of features with subset
+   */
+  void keepInformativeFeatures(image_t& image, int& kappa,
           const omega_horizon_t& Omega_kkH,
-          const std::map<int, omega_horizon_t>& Delta_ells,
-          const std::map<int, omega_horizon_t>& Delta_used_ells);
+          const delta_ls& Delta_ells,
+          const delta_ls& Delta_used_ells,
+          Eigen::VectorXd& probFeatureTracked);
 
-  std::vector<std::pair<int,double>> sortedUpperBounds(
-      const image_t& subset, const omega_horizon_t& Omega,
-      const std::map<int, omega_horizon_t>& Delta_ells);
+  /**
+   * @brief      Make a new subset of type image_t
+   *
+   * @param[in]  image              Feature data in this image
+   * @param[in]  currentSubset      Current subset of features
+   * @param[in]  featureIDToAdd     Feature ID of feature that should be added
+   *
+   * @return     currentSubset      Now the new subset (with featureIDToAdd)
+   */
 
-  double logDet(const omega_horizon_t& Omega,
-                const omega_horizon_t& Delta_ell);
+  image_t makeNewSubset(image_t currentSubset, double featureIDToAdd, image_t image);
 
-  double logDetUB(const omega_horizon_t& Omega,
-                  const omega_horizon_t& Delta_ell);
+  /**
+   * @brief      Calculate logDet cost function of imformation matrices
+   *
+   * @param[in]  currentSubset        Current subset of features
+   * @param[in]  Omega                IMU information matrix over horizon
+   * @param[in]  Delta_ells           Information matrices for each feature
+   * @param[in]  probFeatureTracked   Probability that feature is tracked
+   *
+   * @return     logDet value         Cost function for this subset
+   */
 
+  double logDet(image_t& currentSubset,
+                const omega_horizon_t& Omega,
+                const delta_ls& Delta_ells,
+                Eigen::VectorXd& probFeatureTracked);
+
+  /**
+   * @brief      Calculate and sort upper bounds of logDet cost function of
+   *             for all features if added to the current subset
+   *
+   * @param[in]  Omega                IMU information matrix over horizon
+   * @param[in]  Delta_ells           Information matrices for each feature
+   * @param[in]  subset               Current subset of features
+   * @param[in]  image                Feature data in this image
+   * @param[in]  probFeatureTracked   Probability that feature is tracked
+   *
+   * @return     logDetUpperBound     Descending sorted map of upper bounds
+   *                                  and feature IDs
+   */
+
+  std::map<double,int,std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
+                        const delta_ls& Delta_ells, image_t& subset,
+                        const image_t& image, Eigen::VectorXd& probFeatureTracked);
+
+  // In case we have extra time for another cost function (though we know
+  // to be slower than logDet)
   double minEig(const omega_horizon_t& Omega,
-                const omega_horizon_t& Delta_ell);
+                const delta_ls& Delta_ell);
 
   double minEigUB(const omega_horizon_t& Omega,
-                  const omega_horizon_t& Delta_ell);
+                  const delta_ls& Delta_ell);
 };
