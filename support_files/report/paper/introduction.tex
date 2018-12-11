@@ -8,7 +8,7 @@ The purpose of this project is to mitigate loss of feature tracks by being more 
 This adds robustness to the visual-inertial motion estimation pipeline by disregarding features that are predicted to soon be lost based on future robot motion.
 Further, we allow for more efficient optimization by using fewer features with high information content.
 
-This project accomplishes these goals by incorporating the attention and anticipation formulation of Carlone~\cite{Carlone2017} with the fixed-lag smoother of VINS-Mono~\cite{Qin2018}, a recent state-of-the-art implementation of visual-inertial odometry.
+This project accomplishes these goals by incorporating the attention and anticipation formulation of Carlone~\cite{Carlone2017} with the fixed-lag smoother of VINS-Mono~\cite{Qin2018}, a recent implementation of visual-inertial odometry that has been shown to perform well under power and payload constraints of aerial platforms~\cite{Delmerico2018}.
 The resulting implementation is publicly available\footnote{\url{https://github.com/plusk01/Anticipated-VINS-Mono}} and is referred to as \texttt{Anticipated VINS-Mono}.
 A high-level system architecture diagram is shown in Figure~\ref{fig:architecture}.
 
