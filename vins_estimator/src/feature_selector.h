@@ -240,8 +240,10 @@ private:
    * @param[in]    Omega_kkH        Information from robot motion
    * @param[in]    Delta_ells       New features and their corresponding info
    * @param[in]    Delta_used_ells  Currently tracked features and their info
+   * 
+   * @return       Feature ids of new features that were selected
    */
-  void selectInformativeFeatures(image_t& subset,
+  std::vector<int> selectInformativeFeatures(image_t& subset,
         const image_t& image, int kappa, const omega_horizon_t& Omega_kkH,
         const std::map<int, omega_horizon_t>& Delta_ells,
         const std::map<int, omega_horizon_t>& Delta_used_ells);
