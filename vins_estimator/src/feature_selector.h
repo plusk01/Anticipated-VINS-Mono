@@ -34,7 +34,8 @@ public:
 
 
   void setParameters(double accVar, double accBiasVar,
-                     bool enable, int maxFeatures, int initThresh);
+                     bool enable, int maxFeatures, int initThresh,
+                     bool useGT);
 
   /**
    * @brief         Select the most informative subset of features to track
@@ -104,7 +105,7 @@ private:
 
   // state generator over the future horizon
   typedef enum { IMU, GT } horizon_generation_t;
-  horizon_generation_t horizonGeneration_ = GT;
+  horizon_generation_t horizonGeneration_;
   std::unique_ptr<HorizonGenerator> hgen_;
 
   // state

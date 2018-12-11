@@ -23,7 +23,7 @@ std::string IMU_TOPIC;
 double ROW, COL;
 double TD, TR;
 
-bool FSEL_ENABLE;
+bool FSEL_ENABLE, USE_GT;
 int NUM_FEAT_MAINTAIN, INIT_THRESH;
 
 template <typename T>
@@ -135,6 +135,7 @@ std::string readParameters(ros::NodeHandle &n)
     FSEL_ENABLE = static_cast<int>(fsSettings["use_feature_selector"]) != 0;
     NUM_FEAT_MAINTAIN = fsSettings["max_features"];
     INIT_THRESH = fsSettings["init_threshold"];
+    USE_GT = static_cast<int>(fsSettings["use_ground_truth_hgen"]) != 0;
     
     fsSettings.release();
 

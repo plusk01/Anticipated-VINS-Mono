@@ -23,13 +23,14 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator,
 
 void FeatureSelector::setParameters(double accVar, double accBiasVar,
                                     bool enable, int maxFeatures,
-                                    int initThresh)
+                                    int initThresh, bool useGT)
 {
   accVarDTime_ = accVar;
   accBiasVarDTime_ = accBiasVar;
   enable_ = enable;
   maxFeatures_ = maxFeatures;
   initThresh_ = initThresh;
+  horizonGeneration_ = (useGT) ? GT : IMU;
 }
 
 // ----------------------------------------------------------------------------
@@ -153,8 +154,8 @@ FeatureSelector::select(image_t& image,
     // NOTE: We are not removing not found features because they could
     // pop up again (i.e., loop-closure (?), missed detections, etc.)
   }
-  ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
-                  " of " << trackedFeatures_.size() << " known features");
+  // ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
+                  // " of " << trackedFeatures_.size() << " known features");
 
   // We would like to only track N features total (including currently tracked
   // features). Therefore, we will calculate how many of the new features should
@@ -186,7 +187,7 @@ FeatureSelector::select(image_t& image,
     subset.insert(image.begin(), image.end());
   }
 
-  ROS_WARN_STREAM("Feature selector chose " << subset.size() << " features");
+  // ROS_WARN_STREAM("Feature selector chose " << subset.size() << " features");
 
   // return best features to use for VINS-Mono
   image.swap(subset);
