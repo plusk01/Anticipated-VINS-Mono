@@ -224,7 +224,7 @@ private:
    */
   void keepInformativeFeatures(image_t& image, int kappa,
         const omega_horizon_t& Omega, const delta_ls& Delta_ells,
-        const delta_ls& Delta_used_ells, Eigen::VectorXd& probFeatureTracked);
+        const delta_ls& Delta_used_ells, std::map<int, int>& probFeatureTracked);
 
   /**
    * @brief      Make a new subset of type image_t
@@ -252,7 +252,7 @@ private:
   double logDet(image_t& currentSubset,
                 const omega_horizon_t& Omega,
                 const delta_ls& Delta_ells,
-                Eigen::VectorXd& probFeatureTracked);
+                std::map<int, int>& probFeatureTracked);
 
   /**
    * @brief      Calculate and sort upper bounds of logDet cost function of
@@ -270,7 +270,7 @@ private:
 
   std::map<double, int, std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
                         const delta_ls& Delta_ells, image_t& subset,
-                        const image_t& image, Eigen::VectorXd& probFeatureTracked);
+                        const image_t& image, std::map<int, int>& probFeatureTracked);
 
   // In case we have extra time for another cost function
   // (though we know minEig to be slower than logDet)
