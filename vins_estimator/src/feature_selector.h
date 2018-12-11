@@ -78,6 +78,11 @@ private:
    */
   int lastFeatureId_ = 0;
 
+  // feature ids that have been selected and passed to the backend
+  std::vector<int> trackedFeatures_;
+
+  bool firstImage_ = true; ///< All image features are added on first image
+
   // extrinsic parameters: camera frame w.r.t imu frame
   Eigen::Quaterniond q_IC_;
   Eigen::Vector3d t_IC_;
@@ -229,30 +234,29 @@ private:
   /**
    * @brief      Run lazy and greedy selection of features
    *
-   * @param[in]  image              Feature data in this image
-   * @param[in]  kappa              Number of features to select
-   * @param[in]  Omega_kkH          IMU information matrix over horizon
-   * @param[in]  Delta_ells         Information matrices for each feature
-   * @param[in]  probFeatureTracked    Probability that feature is tracked
-   *
-   * @return     void               Swaps out image set of features with subset
+   * @param[inout] subset           Subset of features to add our selection to
+   * @param[in]    image            All of the features from the current image
+   * @param[in]    kappa            The number of features to try and select
+   * @param[in]    Omega_kkH        Information from robot motion
+   * @param[in]    Delta_ells       New features and their corresponding info
+   * @param[in]    Delta_used_ells  Currently tracked features and their info
    */
-  void keepInformativeFeatures(image_t& image, int kappa,
-        const omega_horizon_t& Omega, const std::map<int, omega_horizon_t>& Delta_ells,
+  void selectInformativeFeatures(image_t& subset,
+        const image_t& image, int kappa, const omega_horizon_t& Omega_kkH,
+        const std::map<int, omega_horizon_t>& Delta_ells,
         const std::map<int, omega_horizon_t>& Delta_used_ells);
 
   /**
-   * @brief      Calculate and sort upper bounds of logDet cost function of
-   *             for all features if added to the current subset
+   * @brief      Calculate and sort upper bounds of logDet metric when adding
+   *             each feature to the current subset independently of the other
    *
-   * @param[in]  Omega                IMU information matrix over horizon
-   * @param[in]  Delta_ells           Information matrices for each feature
-   * @param[in]  subset               Current subset of features
-   * @param[in]  image                Feature data in this image
-   * @param[in]  probFeatureTracked   Probability that feature is tracked
+   * @param[in]  Omega       Information from robot motion and current tracks
+   * @param[in]  OmegaS      The information content of the current subset
+   * @param[in]  Delta_ells  New features and their corresponding information
+   * @param[in]  blacklist   Feature ids that have already been selected
+   * @param[in]  image       All of the features from the current image
    *
-   * @return     logDetUpperBound     Descending sorted map of upper bounds
-   *                                  and feature IDs
+   * @return     A (desc) sorted map of <UB, feature id>
    */
   std::map<double, int, std::greater<double>> sortedlogDetUB(
       const omega_horizon_t& Omega, const omega_horizon_t& OmegaS,

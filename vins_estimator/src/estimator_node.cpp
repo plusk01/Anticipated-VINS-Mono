@@ -335,7 +335,7 @@ void process()
             int nrImuMeasurements = static_cast<int>(measurement.first.size());
 
             // how many features (at most) to select?
-            constexpr int kappa = 20;
+            constexpr int kappa = 50;
 
             // select the best features, removing poor choices from image.
             TicToc t_fsel;

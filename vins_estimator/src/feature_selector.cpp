@@ -86,7 +86,9 @@ void FeatureSelector::select(image_t& image, int kappa,
   // Decide which features are new and which are already being used
   //
 
-  // remove new features from image and put into image_new
+  // remove new features from image and put into image_new.
+  // Image will only contain features that are currently being tracked.
+  // TODO: Is this true? Does VINS-Mono use all features in `image`?
   image_t image_new;
   splitOnFeatureId(lastFeatureId_, image, image_new);
 
@@ -126,13 +128,50 @@ void FeatureSelector::select(image_t& image, int kappa,
   // Attention: Select a subset of features that maximizes expected information
   //
 
-  // Only change the feature information if VINS-Mono is initialized
-  if (estimator_.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
-    // removes poor feature choices from image
-    keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
+  // Has VINS-Mono initialized?
+  bool initialized = estimator_.solver_flag == Estimator::SolverFlag::NON_LINEAR;
+
+  // the subset of features to pass to VINS-Mono back end
+  image_t subset;
+
+  // add in previously tracked features
+  for (auto fid : trackedFeatures_) {
+    // attempt to retrieve this feature from image
+    auto feature = image.find(fid);
+    if (feature != image.end()) {
+      subset[fid] = feature->second;
+    }
+
+    // NOTE: We are not removing not found features because they could
+    // pop up again (i.e., loop-closure, missed detections, etc.)
+  }
+  ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
+                  " of " << trackedFeatures_.size() << " known features");
+
+  // We would like to only track kappa features total (including currently tracked
+  // features). Therefore, we will calculate how many of the new features should
+  // be selected.
+  int n = std::max(0, kappa - static_cast<int>(subset.size()));
+
+  // Only select features if VINS-Mono is initialized
+  if (initialized) {
+    selectInformativeFeatures(subset, image_new, n, Omega_kkH,
+                                                Delta_ells, Delta_used_ells);
+  } else if (!initialized && firstImage_) {
+    // use the whole image to initialize!
+    subset.swap(image_new);
+
+    // consider all of these features as tracked by VINS-Mono
+    for (const auto& fpair : subset) trackedFeatures_.push_back(fpair.first);
+
+    // these features will be added by the trackedFeatures_ mechanism
+    firstImage_ = false;
   }
 
-  ROS_WARN_STREAM("Feature selector chose " << image.size() << " features");
+  ROS_WARN_STREAM("Feature selector chose " << subset.size() << " features");
+
+  // return best features to use for VINS-Mono
+  image.swap(subset);
 
   // for next iteration
   frameTime_k = header.stamp.toSec();
@@ -543,10 +582,10 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
-                        const omega_horizon_t& Omega_kkH,
-                        const std::map<int, omega_horizon_t>& Delta_ells,
-                        const std::map<int, omega_horizon_t>& Delta_used_ells)
+void FeatureSelector::selectInformativeFeatures(image_t& subset,
+            const image_t& image, int kappa, const omega_horizon_t& Omega_kkH,
+            const std::map<int, omega_horizon_t>& Delta_ells,
+            const std::map<int, omega_horizon_t>& Delta_used_ells)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
@@ -554,9 +593,6 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
   // for (const auto& Delta : Delta_used_ells) {
   //   Omega += Delta.second;
   // }
-
-  // subset of most informative features
-  image_t subset;
 
   // blacklist of already selected features (by id)
   std::vector<int> blacklist;
@@ -615,11 +651,12 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
 
       // mark as used
       blacklist.push_back(lMax);
+
+      // keep track of which features have been passed to the backend. If we see
+      // these features again, we need to let them through unharrassed.
+      trackedFeatures_.push_back(lMax);
     }
   }
-
-  // return the subset to estimator_node.cpp
-  subset.swap(image);
 }
 
 // ----------------------------------------------------------------------------
