@@ -32,8 +32,6 @@ using ablk_t = Eigen::Matrix<double, STATE_SIZE, STATE_SIZE>;
 using image_t = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>;
 
 
-using fset_t = std::map<int, omega_horizon_t>;
-
 
 static const Eigen::Vector3d gravity = [] {
   Eigen::Vector3d tmp;

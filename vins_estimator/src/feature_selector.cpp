@@ -586,6 +586,9 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
 
       // add feature that returns the most information to the subset
       subset[lMax] = image.at(lMax);
+
+      // mark as used
+      blacklist.push_back(lMax);
     }
   }
 
