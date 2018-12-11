@@ -112,7 +112,7 @@ private:
     inline double kdtree_get_pt(const size_t idx, const size_t dim) const
     {
         if (dim == 0) return pts[idx].first;
-        else if (dim == 1) return pts[idx].second;
+        else /*if (dim == 1)*/ return pts[idx].second;
     }
 
     // Optional bounding-box computation: return false to default to a standard bbox computation loop.
@@ -222,11 +222,9 @@ private:
    *
    * @return     void               Swaps out image set of features with subset
    */
-  void keepInformativeFeatures(image_t& image, int& kappa,
-          const omega_horizon_t& Omega_kkH,
-          const delta_ls& Delta_ells,
-          const delta_ls& Delta_used_ells,
-          Eigen::VectorXd& probFeatureTracked);
+  void keepInformativeFeatures(image_t& image, int kappa,
+        const omega_horizon_t& Omega, const delta_ls& Delta_ells,
+        const delta_ls& Delta_used_ells, Eigen::VectorXd& probFeatureTracked);
 
   /**
    * @brief      Make a new subset of type image_t
@@ -270,15 +268,12 @@ private:
    *                                  and feature IDs
    */
 
-  std::map<double,int,std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
+  std::map<double, int, std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
                         const delta_ls& Delta_ells, image_t& subset,
                         const image_t& image, Eigen::VectorXd& probFeatureTracked);
 
-  // In case we have extra time for another cost function (though we know
-  // to be slower than logDet)
-  double minEig(const omega_horizon_t& Omega,
-                const delta_ls& Delta_ell);
-
-  double minEigUB(const omega_horizon_t& Omega,
-                  const delta_ls& Delta_ell);
+  // In case we have extra time for another cost function
+  // (though we know minEig to be slower than logDet)
+  double minEig(const omega_horizon_t& Omega, const delta_ls& Delta_ell) { return 0; }
+  double minEigUB(const omega_horizon_t& Omega, const delta_ls& Delta_ell) { return 0; }
 };
