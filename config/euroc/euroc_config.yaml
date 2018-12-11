@@ -84,3 +84,4 @@ visualize_camera_size: 0.4      # size of camera marker in RVIZ
 # feature selector
 use_feature_selector: 1          # 1: enable the attention algorithm for feature selection
 max_features: 30                 # number of features to maintain
+init_threshold: 30               # during initialization, don't go below this many features

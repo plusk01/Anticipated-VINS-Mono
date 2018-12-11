@@ -379,7 +379,7 @@ int main(int argc, char **argv)
     std::string config_file = readParameters(n);
     estimator.setParameter();
     f_selector = std::make_shared<FeatureSelector>(n, estimator, config_file);
-    f_selector->setParameters(ACC_N, ACC_W, FSEL_ENABLE, NUM_FEAT_MAINTAIN);
+    f_selector->setParameters(ACC_N, ACC_W, FSEL_ENABLE, NUM_FEAT_MAINTAIN, INIT_THRESH);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif

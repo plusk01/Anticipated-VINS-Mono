@@ -33,7 +33,8 @@ public:
   ~FeatureSelector() = default;
 
 
-  void setParameters(double accVar, double accBiasVar, bool enable, int maxFeatures);
+  void setParameters(double accVar, double accBiasVar,
+                     bool enable, int maxFeatures, int initThresh);
 
   /**
    * @brief         Select the most informative subset of features to track
@@ -84,6 +85,7 @@ private:
   std::vector<int> trackedFeatures_;
 
   bool firstImage_ = true; ///< All image features are added on first image
+  int initThresh_; ///< while not initialized, keep at least this many features
 
   bool enable_ = true; ///< should the feature selection algo be used?
   int maxFeatures_; ///< how many features should be maintained?

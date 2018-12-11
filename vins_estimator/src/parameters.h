@@ -25,6 +25,7 @@ extern double GYR_N, GYR_W;
 
 extern bool FSEL_ENABLE;
 extern int NUM_FEAT_MAINTAIN;
+extern int INIT_THRESH;
 
 extern std::vector<Eigen::Matrix3d> RIC;
 extern std::vector<Eigen::Vector3d> TIC;

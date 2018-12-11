@@ -24,7 +24,7 @@ double ROW, COL;
 double TD, TR;
 
 bool FSEL_ENABLE;
-int NUM_FEAT_MAINTAIN;
+int NUM_FEAT_MAINTAIN, INIT_THRESH;
 
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
@@ -134,6 +134,7 @@ std::string readParameters(ros::NodeHandle &n)
 
     FSEL_ENABLE = static_cast<int>(fsSettings["use_feature_selector"]) != 0;
     NUM_FEAT_MAINTAIN = fsSettings["max_features"];
+    INIT_THRESH = fsSettings["init_threshold"];
     
     fsSettings.release();
 

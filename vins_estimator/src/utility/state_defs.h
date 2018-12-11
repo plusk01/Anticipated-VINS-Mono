@@ -5,7 +5,7 @@
 
 #include <Eigen/Dense>
 
-#define HORIZON 10 ///< number of frames to look into the future
+#define HORIZON 13 ///< number of frames to look into the future
 
 #define STATE_SIZE 9 ///< size of state as defined in paper III-B1,
                      ///< which comes from the linear IMU model.

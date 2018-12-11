@@ -22,12 +22,14 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator,
 // ----------------------------------------------------------------------------
 
 void FeatureSelector::setParameters(double accVar, double accBiasVar,
-                                    bool enable, int maxFeatures)
+                                    bool enable, int maxFeatures,
+                                    int initThresh)
 {
   accVarDTime_ = accVar;
   accBiasVarDTime_ = accBiasVar;
   enable_ = enable;
   maxFeatures_ = maxFeatures;
+  initThresh_ = initThresh;
 }
 
 // ----------------------------------------------------------------------------
@@ -127,7 +129,7 @@ FeatureSelector::select(image_t& image,
 
   // Calculate the information content of each of the currently used features
   std::map<int, omega_horizon_t> Delta_used_ells;
-  // auto Delta_used_ells = calcInfoFromFeatures(image, state_kkH);
+  Delta_used_ells = calcInfoFromFeatures(image, state_kkH);
 
 
   //
@@ -176,6 +178,12 @@ FeatureSelector::select(image_t& image,
 
     // these features will be added by the trackedFeatures_ mechanism
     firstImage_ = false;
+  }
+
+  // if we still aren't initialized, but there aren't many features then add
+  // all of the current image's features to the subset
+  if (!initialized && static_cast<int>(subset.size()) < initThresh_) {
+    subset.insert(image.begin(), image.end());
   }
 
   ROS_WARN_STREAM("Feature selector chose " << subset.size() << " features");
@@ -606,9 +614,9 @@ std::vector<int> FeatureSelector::selectInformativeFeatures(image_t& subset,
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
   omega_horizon_t Omega = Omega_kkH;
-  // for (const auto& Delta : Delta_used_ells) {
-  //   Omega += Delta.second;
-  // }
+  for (const auto& Delta : Delta_used_ells) {
+    Omega += Delta.second;
+  }
 
   // blacklist of already selected features (by id)
   std::vector<int> blacklist;
