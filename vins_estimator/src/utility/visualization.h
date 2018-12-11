@@ -1,9 +1,13 @@
 #pragma once
 
+#include <utility>
+#include <vector>
+
 #include <ros/ros.h>
 #include <std_msgs/Header.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Int32MultiArray.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/Image.h>
@@ -50,3 +54,5 @@ void pubTF(const Estimator &estimator, const std_msgs::Header &header);
 void pubKeyframe(const Estimator &estimator);
 
 void pubRelocalization(const Estimator &estimator);
+
+void pubSelectionInfo(const std::pair<std::vector<int>, std::vector<int>>& selectionInfo);

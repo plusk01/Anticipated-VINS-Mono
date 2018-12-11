@@ -65,8 +65,9 @@ void FeatureSelector::setNextStateFromImuPropagation(
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::select(image_t& image, int kappa,
-        const std_msgs::Header& header, int nrImuMeasurements)
+std::pair<std::vector<int>, std::vector<int>>
+FeatureSelector::select(image_t& image, int kappa,
+    const std_msgs::Header& header, int nrImuMeasurements)
 {
   //
   // Timing information
@@ -183,6 +184,8 @@ void FeatureSelector::select(image_t& image, int kappa,
 
   // for next iteration
   frameTime_k = header.stamp.toSec();
+
+  return std::make_pair(trackedFeatures_, selectedIds);
 }
 
 // ----------------------------------------------------------------------------

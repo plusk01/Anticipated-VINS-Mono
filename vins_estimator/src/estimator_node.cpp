@@ -339,8 +339,10 @@ void process()
 
             // select the best features, removing poor choices from image.
             TicToc t_fsel;
-            f_selector->select(image, kappa, img_msg->header, nrImuMeasurements);
+            auto selectionInfo = f_selector->select(image, kappa, img_msg->header, nrImuMeasurements);
             ROS_INFO_STREAM("Feature selection took " << t_fsel.toc() << " ms");
+
+            pubSelectionInfo(selectionInfo);
 
             // ----------------------------------------------------------------
 

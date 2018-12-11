@@ -42,8 +42,11 @@ public:
    * @param[in]     kappa   The maximum cardinality of subset of selected features
    * @param[in]     header  The header (with timestamp) of the corresponding image
    * @param[in]     nrImus  The number of IMU measurements between the prev frame and now
+   * 
+   * @return        <historic_ids, new_ids> of features
    */
-  void select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
+  std::pair<std::vector<int>, std::vector<int>>
+  select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
 
   /**
    * @brief      Provides the (yet-to-be-corrected) pose estimate
