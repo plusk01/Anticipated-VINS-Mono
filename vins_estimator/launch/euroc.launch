@@ -27,4 +27,13 @@
         <param name="skip_dis" type="double" value="0" />
     </node>
 
+    <!-- attention visualization -->
+    <node name="attention_viewer" pkg="feature_tracker" type="attention_viewer" output="screen">
+        <remap from="attention_viewer/image" to="/cam0/image_raw" />
+        <remap from="attention_viewer/feature" to="feature_tracker/feature" />
+        <remap from="attention_viewer/subset" to="vins_estimator/subset" />
+        <param name="config_file" type="string" value="$(find feature_tracker)/config/euroc.yaml" />
+        <param name="vins_folder" type="string" value="$(arg vins_path)" />
+    </node>
+
 </launch>

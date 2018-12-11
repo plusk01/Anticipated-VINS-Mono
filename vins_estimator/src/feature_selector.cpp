@@ -143,7 +143,7 @@ void FeatureSelector::select(image_t& image, int kappa,
     }
 
     // NOTE: We are not removing not found features because they could
-    // pop up again (i.e., loop-closure, missed detections, etc.)
+    // pop up again (i.e., loop-closure (?), missed detections, etc.)
   }
   ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
                   " of " << trackedFeatures_.size() << " known features");
