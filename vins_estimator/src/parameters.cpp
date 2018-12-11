@@ -23,6 +23,9 @@ std::string IMU_TOPIC;
 double ROW, COL;
 double TD, TR;
 
+bool FSEL_ENABLE;
+int NUM_FEAT_MAINTAIN;
+
 template <typename T>
 T readParam(ros::NodeHandle &n, std::string name)
 {
@@ -128,6 +131,9 @@ std::string readParameters(ros::NodeHandle &n)
     {
         TR = 0;
     }
+
+    FSEL_ENABLE = static_cast<int>(fsSettings["use_feature_selector"]) != 0;
+    NUM_FEAT_MAINTAIN = fsSettings["max_features"];
     
     fsSettings.release();
 

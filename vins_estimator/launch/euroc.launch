@@ -36,4 +36,8 @@
         <param name="vins_folder" type="string" value="$(arg vins_path)" />
     </node>
 
+    <include file="$(find benchmark_publisher)/launch/publish.launch">
+        <arg name="sequence_name" value="$(arg sequence_name)" />
+    </include>
+
 </launch>

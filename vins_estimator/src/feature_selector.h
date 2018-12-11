@@ -33,20 +33,19 @@ public:
   ~FeatureSelector() = default;
 
 
-  void setParameters(double accVar, double accBiasVar);
+  void setParameters(double accVar, double accBiasVar, bool enable, int maxFeatures);
 
   /**
    * @brief         Select the most informative subset of features to track
    *
    * @param[inout]  image   A set of calibrated pixels, indexed by feature id
-   * @param[in]     kappa   The maximum cardinality of subset of selected features
    * @param[in]     header  The header (with timestamp) of the corresponding image
    * @param[in]     nrImus  The number of IMU measurements between the prev frame and now
    * 
    * @return        <historic_ids, new_ids> of features
    */
   std::pair<std::vector<int>, std::vector<int>>
-  select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
+  select(image_t& image, const std_msgs::Header& header, int nrImuMeasurements);
 
   /**
    * @brief      Provides the (yet-to-be-corrected) pose estimate
@@ -85,6 +84,9 @@ private:
   std::vector<int> trackedFeatures_;
 
   bool firstImage_ = true; ///< All image features are added on first image
+
+  bool enable_ = true; ///< should the feature selection algo be used?
+  int maxFeatures_; ///< how many features should be maintained?
 
   // extrinsic parameters: camera frame w.r.t imu frame
   Eigen::Quaterniond q_IC_;

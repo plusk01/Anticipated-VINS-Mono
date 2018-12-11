@@ -334,12 +334,9 @@ void process()
             // number of IMU measurements between last and current frames
             int nrImuMeasurements = static_cast<int>(measurement.first.size());
 
-            // how many features (at most) to select?
-            constexpr int kappa = 30;
-
             // select the best features, removing poor choices from image.
             TicToc t_fsel;
-            auto selectionInfo = f_selector->select(image, kappa, img_msg->header, nrImuMeasurements);
+            auto selectionInfo = f_selector->select(image, img_msg->header, nrImuMeasurements);
             ROS_INFO_STREAM("Feature selection took " << t_fsel.toc() << " ms");
 
             pubSelectionInfo(selectionInfo, img_msg->header);
@@ -382,7 +379,7 @@ int main(int argc, char **argv)
     std::string config_file = readParameters(n);
     estimator.setParameter();
     f_selector = std::make_shared<FeatureSelector>(n, estimator, config_file);
-    f_selector->setParameters(ACC_N, ACC_W);
+    f_selector->setParameters(ACC_N, ACC_W, FSEL_ENABLE, NUM_FEAT_MAINTAIN);
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif

@@ -21,10 +21,13 @@ FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator,
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::setParameters(double accVar, double accBiasVar)
+void FeatureSelector::setParameters(double accVar, double accBiasVar,
+                                    bool enable, int maxFeatures)
 {
   accVarDTime_ = accVar;
   accBiasVarDTime_ = accBiasVar;
+  enable_ = enable;
+  maxFeatures_ = maxFeatures;
 }
 
 // ----------------------------------------------------------------------------
@@ -66,9 +69,11 @@ void FeatureSelector::setNextStateFromImuPropagation(
 // ----------------------------------------------------------------------------
 
 std::pair<std::vector<int>, std::vector<int>>
-FeatureSelector::select(image_t& image, int kappa,
-    const std_msgs::Header& header, int nrImuMeasurements)
+FeatureSelector::select(image_t& image,
+          const std_msgs::Header& header, int nrImuMeasurements)
 {
+  if (!enable_) return {};
+
   //
   // Timing information
   //
@@ -149,18 +154,18 @@ FeatureSelector::select(image_t& image, int kappa,
   ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
                   " of " << trackedFeatures_.size() << " known features");
 
-  // We would like to only track kappa features total (including currently tracked
+  // We would like to only track N features total (including currently tracked
   // features). Therefore, we will calculate how many of the new features should
-  // be selected.
-  int n = std::max(0, kappa - static_cast<int>(subset.size()));
+  // be selected (kappa).
+  int kappa = std::max(0, maxFeatures_ - static_cast<int>(subset.size()));
 
   // so we can keep track of the new features we chose
   std::vector<int> selectedIds;
-  selectedIds.reserve(n);
+  selectedIds.reserve(kappa);
 
   // Only select features if VINS-Mono is initialized
   if (initialized) {
-    selectedIds = selectInformativeFeatures(subset, image_new, n, Omega_kkH,
+    selectedIds = selectInformativeFeatures(subset, image_new, kappa, Omega_kkH,
                                                 Delta_ells, Delta_used_ells);
   } else if (!initialized && firstImage_) {
     // use the whole image to initialize!
