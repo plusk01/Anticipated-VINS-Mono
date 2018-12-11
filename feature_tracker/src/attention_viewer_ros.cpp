@@ -71,28 +71,41 @@ void AttentionViewerROS::callback(const sensor_msgs::ImageConstPtr& _img,
     bool isOld = std::find(oldIds.begin(), oldIds.end(), id) != oldIds.end();
     bool isNew = std::find(newIds.begin(), newIds.end(), id) != newIds.end();
 
-    // this feature was never chosen
-    if (!isOld && !isNew) continue;
+    if (isNew || isOld) {
 
-    // new features are blue, old features red
-    double alpha = (isNew) ? 0 : ((isOld) ? 1 : 0.5);
-    auto color = cv::Scalar(255 * (1 - alpha), 0, 255 * alpha);
+      // update how long each feature has been alive
+      if (isNew) {
+        // initialize feature lifetime
+        featureLifetime_[id] = 0;
+      } else {
+        featureLifetime_[id]++;
+      }
 
-    // draw feature
-    cv::circle(img, pix, 2, color, 2);
+      // color blend: new-blue, old-red
+      constexpr int horizon = 10;
+      double alpha = std::min(1.0, static_cast<double>(featureLifetime_[id]) / horizon);
+      auto color = cv::Scalar(255 * (1 - alpha), 0, 255 * alpha);
 
-    // // draw velocity
-    // constexpr double dt = 0.10;
-    // cv::Point2f nip0 = nip - dt*vel;
-    // Eigen::Vector3d b0(nip0.x, nip0.y, 1.0);
-    // Eigen::Vector2d a0;
-    // tracker_->camera()->spaceToPlane(b0, a0);
-    // cv::line(img, pix, cv::Point2f(a0.x(), a0.y()), cv::Scalar(255 , 0, 0), 1 , 8, 0);
+      // draw feature
+      cv::circle(img, pix, 2, color, 2);
 
-    // print id next to feature
-    char strID[10];
-    sprintf(strID, "%d", id);
-    cv::putText(img, strID, pix, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0));
+      // // draw velocity
+      // constexpr double dt = 0.10;
+      // cv::Point2f nip0 = nip - dt*vel;
+      // Eigen::Vector3d b0(nip0.x, nip0.y, 1.0);
+      // Eigen::Vector2d a0;
+      // tracker_->camera()->spaceToPlane(b0, a0);
+      // cv::line(img, pix, cv::Point2f(a0.x(), a0.y()), cv::Scalar(255 , 0, 0), 1 , 8, 0);
+      
+      // print id next to feature
+      char strID[10];
+      sprintf(strID, "%d", id);
+      cv::putText(img, strID, pix, cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0));
+
+    } else { // this feature was never chosen
+      auto color = cv::Scalar(0, 255, 0);
+      cv::circle(img, pix, 1, color, 1);
+    }
   }
 
   // pack up and publish

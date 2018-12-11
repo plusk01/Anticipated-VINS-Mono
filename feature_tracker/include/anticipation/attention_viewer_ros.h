@@ -51,6 +51,9 @@ private:
 
   camodocal::CameraPtr m_camera_; ///< geometric camera model
 
+  // <fid, lifetime>
+  std::map<int, int> featureLifetime_; ///< lifetime of features
+
   int frame_ = 0; ///< what is the current frame number to process
 
   // subscriber callbacks
