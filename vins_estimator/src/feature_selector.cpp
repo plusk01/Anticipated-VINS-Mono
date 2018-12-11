@@ -434,7 +434,7 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     block3 += tmp.transpose();
 
     // Ω (bottom-right sub-block)
-    block4 += mats.second;
+    block4 += mats.first;
   }
 
   return Omega_kkH;
@@ -489,7 +489,7 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
   covImu.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity()
           * nrImuMeasurements * CCt_11 * deltaImu_4 * accVarDTime_;
   covImu.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity()
-          * CCt_11 * deltaImu_3 * accVarDTime_;
+          * CCt_12 * deltaImu_3 * accVarDTime_;
   covImu.block<3, 3>(3, 0) = covImu.block<3, 3>(0, 3).transpose();
   covImu.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity()
           * nrImuMeasurements * deltaImu_2 * accVarDTime_;
