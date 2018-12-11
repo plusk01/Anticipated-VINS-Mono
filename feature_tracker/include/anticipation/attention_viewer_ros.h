@@ -18,7 +18,6 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/exact_time.h>
 
-#include <std_msgs/Int32MultiArray.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud.h>
@@ -41,14 +40,14 @@ private:
 
   // message filter sync
   using SyncPolicy = message_filters::sync_policies::ExactTime<
-        sensor_msgs::Image, sensor_msgs::PointCloud/*, sensor_msgs::PointCloud*/>;
+        sensor_msgs::Image, sensor_msgs::PointCloud, sensor_msgs::PointCloud>;
   std::unique_ptr<message_filters::Synchronizer<SyncPolicy>> sync_;
 
   // ROS sub/pub
   image_transport::Publisher img_pub_;
   image_transport::SubscriberFilter img_sf_;
   message_filters::Subscriber<sensor_msgs::PointCloud> features_f_;
-  message_filters::Subscriber<sensor_msgs::PointCloud> subset_f_;
+  message_filters::Subscriber<sensor_msgs::PointCloud> selinfo_f_;
 
   camodocal::CameraPtr m_camera_; ///< geometric camera model
 
@@ -56,6 +55,6 @@ private:
 
   // subscriber callbacks
   void callback(const sensor_msgs::ImageConstPtr& _img,
-                const sensor_msgs::PointCloudConstPtr& _features/*,
-                const sensor_msgs::PointCloudConstPtr& _subset*/);
+                const sensor_msgs::PointCloudConstPtr& _features,
+                const sensor_msgs::PointCloudConstPtr& _selinfo);
 };

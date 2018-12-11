@@ -26,11 +26,11 @@ AttentionViewerROS::AttentionViewerROS(ros::NodeHandle nh)
   // subscribe to original features from feature tracker
   // and selected features from attention algorithm
   features_f_.subscribe(nh_, "feature", 1);
-  subset_f_.subscribe(nh_, "subset", 1);
+  selinfo_f_.subscribe(nh_, "selection_info", 1);
 
   // tie them all together in a synchronizer
   sync_.reset(new message_filters::Synchronizer<SyncPolicy>(SyncPolicy(10),
-                                            img_sf_, features_f_/*, subset_f_*/));
+                                            img_sf_, features_f_, selinfo_f_));
   sync_->registerCallback(&AttentionViewerROS::callback, this);
 
 
@@ -43,8 +43,8 @@ AttentionViewerROS::AttentionViewerROS(ros::NodeHandle nh)
 // ----------------------------------------------------------------------------
 
 void AttentionViewerROS::callback(const sensor_msgs::ImageConstPtr& _img,
-                                  const sensor_msgs::PointCloudConstPtr& _features/*,
-                                  const sensor_msgs::PointCloudConstPtr& _subset*/)
+                                  const sensor_msgs::PointCloudConstPtr& _features,
+                                  const sensor_msgs::PointCloudConstPtr& _selinfo)
 {
   cv::Mat img;
 

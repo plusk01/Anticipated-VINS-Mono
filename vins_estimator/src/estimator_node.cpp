@@ -342,7 +342,7 @@ void process()
             auto selectionInfo = f_selector->select(image, kappa, img_msg->header, nrImuMeasurements);
             ROS_INFO_STREAM("Feature selection took " << t_fsel.toc() << " ms");
 
-            pubSelectionInfo(selectionInfo);
+            pubSelectionInfo(selectionInfo, img_msg->header);
 
             // ----------------------------------------------------------------
 

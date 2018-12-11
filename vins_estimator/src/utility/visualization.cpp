@@ -37,7 +37,7 @@ void registerPub(ros::NodeHandle &n)
     pub_keyframe_point = n.advertise<sensor_msgs::PointCloud>("keyframe_point", 1000);
     pub_extrinsic = n.advertise<nav_msgs::Odometry>("extrinsic", 1000);
     pub_relo_relative_pose=  n.advertise<nav_msgs::Odometry>("relo_relative_pose", 1000);
-    pub_selinfo =  n.advertise<std_msgs::Int32MultiArray>("selection_info", 1000);
+    pub_selinfo = n.advertise<sensor_msgs::PointCloud>("selection_info", 1000);
 
     cameraposevisual.setScale(1);
     cameraposevisual.setLineWidth(0.05);
@@ -426,25 +426,25 @@ void pubRelocalization(const Estimator &estimator)
     pub_relo_relative_pose.publish(odometry);
 }
 
-void pubSelectionInfo(const std::pair<std::vector<int>, std::vector<int>>& selectionInfo)
+void pubSelectionInfo(const std::pair<std::vector<int>, std::vector<int>>& selectionInfo,
+                        const std_msgs::Header& header)
 {
-    std_msgs::Int32MultiArray msg;
+    sensor_msgs::PointCloud msg;
+    msg.header = header;
 
     // currently tracked feature ids
-    msg.layout.dim.emplace_back();
-    msg.layout.dim.back().size = selectionInfo.first.size();
-    msg.layout.dim.back().stride = 1;
-    msg.layout.dim.back().label = "currently tracked feature ids";
+    msg.channels.emplace_back();
+    msg.channels.back().name = "currently tracked feature ids";
+    msg.channels.back().values.insert(msg.channels.back().values.end(),
+                                        selectionInfo.first.begin(),
+                                        selectionInfo.first.end());
 
     // newly selected feature ids (also in currently tracked ids)
-    msg.layout.dim.emplace_back();
-    msg.layout.dim.back().size = selectionInfo.second.size();
-    msg.layout.dim.back().stride = 1;
-    msg.layout.dim.back().label = "newly tracked feature ids";
+    msg.channels.emplace_back();
+    msg.channels.back().name = "newly tracked feature ids";
+    msg.channels.back().values.insert(msg.channels.back().values.end(),
+                                        selectionInfo.second.begin(),
+                                        selectionInfo.second.end());
 
-    // pack up and ship off
-    msg.data.clear();
-    msg.data.insert(msg.data.end(), selectionInfo.first.begin(), selectionInfo.first.end());
-    msg.data.insert(msg.data.end(), selectionInfo.second.begin(), selectionInfo.second.end());
     pub_selinfo.publish(msg);
 }
