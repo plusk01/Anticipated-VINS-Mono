@@ -42,8 +42,11 @@ public:
    * @param[in]     kappa   The maximum cardinality of subset of selected features
    * @param[in]     header  The header (with timestamp) of the corresponding image
    * @param[in]     nrImus  The number of IMU measurements between the prev frame and now
+   * 
+   * @return        <historic_ids, new_ids> of features
    */
-  void select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
+  std::pair<std::vector<int>, std::vector<int>>
+  select(image_t& image, int kappa, const std_msgs::Header& header, int nrImuMeasurements);
 
   /**
    * @brief      Provides the (yet-to-be-corrected) pose estimate
@@ -240,8 +243,10 @@ private:
    * @param[in]    Omega_kkH        Information from robot motion
    * @param[in]    Delta_ells       New features and their corresponding info
    * @param[in]    Delta_used_ells  Currently tracked features and their info
+   * 
+   * @return       Feature ids of new features that were selected
    */
-  void selectInformativeFeatures(image_t& subset,
+  std::vector<int> selectInformativeFeatures(image_t& subset,
         const image_t& image, int kappa, const omega_horizon_t& Omega_kkH,
         const std::map<int, omega_horizon_t>& Delta_ells,
         const std::map<int, omega_horizon_t>& Delta_used_ells);

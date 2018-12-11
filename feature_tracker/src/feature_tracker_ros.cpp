@@ -143,7 +143,7 @@ void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
     // pack up and publish
     cv_bridge::CvImage out;
     out.header = msg->header;
-    out.encoding= sensor_msgs::image_encodings::BGR8;
+    out.encoding = sensor_msgs::image_encodings::BGR8;
     out.image = img;
     img_pub_.publish(out.toImageMsg());
   }

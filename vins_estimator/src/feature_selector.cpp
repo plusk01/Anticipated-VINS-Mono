@@ -65,8 +65,9 @@ void FeatureSelector::setNextStateFromImuPropagation(
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::select(image_t& image, int kappa,
-        const std_msgs::Header& header, int nrImuMeasurements)
+std::pair<std::vector<int>, std::vector<int>>
+FeatureSelector::select(image_t& image, int kappa,
+    const std_msgs::Header& header, int nrImuMeasurements)
 {
   //
   // Timing information
@@ -143,7 +144,7 @@ void FeatureSelector::select(image_t& image, int kappa,
     }
 
     // NOTE: We are not removing not found features because they could
-    // pop up again (i.e., loop-closure, missed detections, etc.)
+    // pop up again (i.e., loop-closure (?), missed detections, etc.)
   }
   ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
                   " of " << trackedFeatures_.size() << " known features");
@@ -153,9 +154,13 @@ void FeatureSelector::select(image_t& image, int kappa,
   // be selected.
   int n = std::max(0, kappa - static_cast<int>(subset.size()));
 
+  // so we can keep track of the new features we chose
+  std::vector<int> selectedIds;
+  selectedIds.reserve(n);
+
   // Only select features if VINS-Mono is initialized
   if (initialized) {
-    selectInformativeFeatures(subset, image_new, n, Omega_kkH,
+    selectedIds = selectInformativeFeatures(subset, image_new, n, Omega_kkH,
                                                 Delta_ells, Delta_used_ells);
   } else if (!initialized && firstImage_) {
     // use the whole image to initialize!
@@ -173,8 +178,14 @@ void FeatureSelector::select(image_t& image, int kappa,
   // return best features to use for VINS-Mono
   image.swap(subset);
 
+  // keep track of which features have been passed to the back end. If we see
+  // these features again, we need to let them through unharrassed.
+  trackedFeatures_.insert(trackedFeatures_.end(), selectedIds.begin(), selectedIds.end());
+
   // for next iteration
   frameTime_k = header.stamp.toSec();
+
+  return std::make_pair(trackedFeatures_, selectedIds);
 }
 
 // ----------------------------------------------------------------------------
@@ -582,7 +593,7 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::selectInformativeFeatures(image_t& subset,
+std::vector<int> FeatureSelector::selectInformativeFeatures(image_t& subset,
             const image_t& image, int kappa, const omega_horizon_t& Omega_kkH,
             const std::map<int, omega_horizon_t>& Delta_ells,
             const std::map<int, omega_horizon_t>& Delta_used_ells)
@@ -651,12 +662,11 @@ void FeatureSelector::selectInformativeFeatures(image_t& subset,
 
       // mark as used
       blacklist.push_back(lMax);
-
-      // keep track of which features have been passed to the backend. If we see
-      // these features again, we need to let them through unharrassed.
-      trackedFeatures_.push_back(lMax);
     }
   }
+
+  // which new features were selected
+  return blacklist;
 }
 
 // ----------------------------------------------------------------------------

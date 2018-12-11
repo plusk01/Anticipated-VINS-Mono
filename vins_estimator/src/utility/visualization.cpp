@@ -15,6 +15,8 @@ ros::Publisher pub_keyframe_pose;
 ros::Publisher pub_keyframe_point;
 ros::Publisher pub_extrinsic;
 
+ros::Publisher pub_selinfo;
+
 CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
 CameraPoseVisualization keyframebasevisual(0.0, 0.0, 1.0, 1.0);
 static double sum_of_path = 0;
@@ -35,6 +37,7 @@ void registerPub(ros::NodeHandle &n)
     pub_keyframe_point = n.advertise<sensor_msgs::PointCloud>("keyframe_point", 1000);
     pub_extrinsic = n.advertise<nav_msgs::Odometry>("extrinsic", 1000);
     pub_relo_relative_pose=  n.advertise<nav_msgs::Odometry>("relo_relative_pose", 1000);
+    pub_selinfo = n.advertise<sensor_msgs::PointCloud>("selection_info", 1000);
 
     cameraposevisual.setScale(1);
     cameraposevisual.setLineWidth(0.05);
@@ -421,4 +424,27 @@ void pubRelocalization(const Estimator &estimator)
     odometry.twist.twist.linear.y = estimator.relo_frame_index;
 
     pub_relo_relative_pose.publish(odometry);
+}
+
+void pubSelectionInfo(const std::pair<std::vector<int>, std::vector<int>>& selectionInfo,
+                        const std_msgs::Header& header)
+{
+    sensor_msgs::PointCloud msg;
+    msg.header = header;
+
+    // currently tracked feature ids
+    msg.channels.emplace_back();
+    msg.channels.back().name = "currently tracked feature ids";
+    msg.channels.back().values.insert(msg.channels.back().values.end(),
+                                        selectionInfo.first.begin(),
+                                        selectionInfo.first.end());
+
+    // newly selected feature ids (also in currently tracked ids)
+    msg.channels.emplace_back();
+    msg.channels.back().name = "newly tracked feature ids";
+    msg.channels.back().values.insert(msg.channels.back().values.end(),
+                                        selectionInfo.second.begin(),
+                                        selectionInfo.second.end());
+
+    pub_selinfo.publish(msg);
 }

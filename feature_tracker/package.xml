@@ -9,6 +9,7 @@
 
   <depend>roscpp</depend>
   <depend>camera_model</depend>
+  <depend>message_filters</depend>
   <buildtool_depend>catkin</buildtool_depend>
 
 

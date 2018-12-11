@@ -16,11 +16,12 @@ endif()
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-	roscpp
-	image_transport
-	sensor_msgs
-	cv_bridge
-  camera_model
+    roscpp
+    image_transport
+    sensor_msgs
+    cv_bridge
+    message_filters
+    camera_model
 )
 
 ## System dependencies are found with CMake's conventions
@@ -131,9 +132,7 @@ catkin_package(
 include_directories(include ${catkin_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIRS})
 
 ## Declare a C++ library
-add_library(feature_tracker
-	src/feature_tracker.cpp
-)
+add_library(feature_tracker src/feature_tracker.cpp)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -145,23 +144,23 @@ target_link_libraries(feature_tracker ${catkin_LIBRARIES})
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 add_executable(${PROJECT_NAME}_node src/feature_tracker_node.cpp src/feature_tracker_ros.cpp)
+add_executable(${PROJECT_NAME}_aview src/attention_viewer_node.cpp src/attention_viewer_ros.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
 ## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
 set_target_properties(${PROJECT_NAME}_node PROPERTIES OUTPUT_NAME feature_tracker PREFIX "")
+set_target_properties(${PROJECT_NAME}_aview PROPERTIES OUTPUT_NAME attention_viewer PREFIX "")
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
 add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(${PROJECT_NAME}_aview ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(${PROJECT_NAME}_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBS}
-  feature_tracker
-)
+target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${OpenCV_LIBS} feature_tracker)
+target_link_libraries(${PROJECT_NAME}_aview ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 #############
 ## Install ##
