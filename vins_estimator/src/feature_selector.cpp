@@ -1,5 +1,4 @@
 #include "feature_selector.h"
-#include <math.h> // log
 
 FeatureSelector::FeatureSelector(ros::NodeHandle nh, Estimator& estimator, 
                                  const std::string& calib_file)
@@ -84,16 +83,25 @@ void FeatureSelector::select(image_t& image, int kappa,
 
 
   //
+  // Decide which features are new and which are already being used
+  //
+
+  // remove new features from image and put into image_new
+  image_t image_new;
+  splitOnFeatureId(lastFeatureId_, image, image_new);
+
+  // updated the largest feature_id for the next iteration (if different).
+  if (!image_new.empty()) lastFeatureId_ = image_new.crbegin()->first;
+
+
+  //
   // Future State Generation
   //
 
   // We will need to know the state at each frame in the horizon, k:k+H.
   // Note that this includes the current optimized state, xk
   auto state_kkH = generateFutureHorizon(header, nrImuMeasurements, deltaImu, deltaF);
-
-  if (visualize_) {
-    hgen_->visualize(header, state_kkH);
-  }
+  hgen_->visualize(header, state_kkH);
 
 
   //
@@ -107,7 +115,7 @@ void FeatureSelector::select(image_t& image, int kappa,
   auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
 
   // Calculate the information content of each of the new features
-  auto Delta_ells = calcInfoFromFeatures(image, state_kkH);
+  auto Delta_ells = calcInfoFromFeatures(image_new, state_kkH);
 
   // Calculate the information content of each of the currently used features
   std::map<int, omega_horizon_t> Delta_used_ells;
@@ -117,10 +125,14 @@ void FeatureSelector::select(image_t& image, int kappa,
   //
   // Attention: Select a subset of features that maximizes expected information
   //
-  // removes poor feature choices from image
-  Eigen::VectorXd probFeatureTracked = Eigen::VectorXd::Constant(image.size(), 1.0); // PLACEHOLDER, Pipe in from tracker
-  keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells, probFeatureTracked);
 
+  // Only change the feature information if VINS-Mono is initialized
+  if (estimator_.solver_flag == Estimator::SolverFlag::NON_LINEAR) {
+    // removes poor feature choices from image
+    keepInformativeFeatures(image, kappa, Omega_kkH, Delta_ells, Delta_used_ells);
+  }
+
+  ROS_WARN_STREAM("Feature selector chose " << image.size() << " features");
 
   // for next iteration
   frameTime_k = header.stamp.toSec();
@@ -128,6 +140,21 @@ void FeatureSelector::select(image_t& image, int kappa,
 
 // ----------------------------------------------------------------------------
 // Private Methods
+// ----------------------------------------------------------------------------
+
+void FeatureSelector::splitOnFeatureId(int k, image_t& image, image_t& image_new)
+{
+  // pick up after feature_id k
+  auto it = image.upper_bound(k);
+  bool found = (it != image.end());
+
+  // if found, copy new features to image_new and remove from image
+  if (found) {
+    image_new.insert(it, image.end());
+    image.erase(it, image.end());
+  }
+}
+
 // ----------------------------------------------------------------------------
 
 state_horizon_t FeatureSelector::generateFutureHorizon(
@@ -150,7 +177,6 @@ std::map<int, omega_horizon_t> FeatureSelector::calcInfoFromFeatures(
                                             const image_t& image,
                                             const state_horizon_t& state_kkH)
 {
-  //initialize the return map, Delta_ells
   std::map<int, omega_horizon_t> Delta_ells;
 
   // convenience: (yet-to-be-corrected) transformation
@@ -366,9 +392,6 @@ double FeatureSelector::findNNDepth(const std::vector<double>& depths,
   resultSet.init(&ret_index, &out_dist_sqr);
   kdtree_->findNeighbors(resultSet, &query_pt[0], nanoflann::SearchParams(10));
 
-  // std::cout << "knnSearch(nn="<<num_results<<"): \n";
-  // std::cout << "ret_index=" << ret_index << " out_dist_sqr=" << out_dist_sqr << endl;
-
   return depths[ret_index];
 }
 
@@ -520,15 +543,14 @@ omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
 
 // ----------------------------------------------------------------------------
 
-void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
-          const omega_horizon_t& Omega,
-          const delta_ls& Delta_ells,
-          const delta_ls& Delta_used_ells,
-          Eigen::VectorXd& probFeatureTracked)
+void FeatureSelector::keepInformativeFeatures(image_t& image, int kappa,
+                        const omega_horizon_t& Omega_kkH,
+                        const std::map<int, omega_horizon_t>& Delta_ells,
+                        const std::map<int, omega_horizon_t>& Delta_used_ells)
 {
   // Combine motion information with information from features that are already
   // being used in the VINS-Mono optimization backend
-  // *** next two lines not compiling...? 
+  omega_horizon_t Omega = Omega_kkH;
   // for (const auto& Delta : Delta_used_ells) {
   //   Omega += Delta.second;
   // }
@@ -536,113 +558,110 @@ void FeatureSelector::keepInformativeFeatures(image_t& image, int& kappa,
   // subset of most informative features
   image_t subset;
 
-  // select the indices of the best features
-  for (int i=0; i<kappa; ++i)
-  {
-    // compute upper bounds in form of <upperBoundValue, feature_ID>
-    // descending by upperBoundValue
+  // blacklist of already selected features (by id)
+  std::vector<int> blacklist;
+  blacklist.reserve(kappa);
 
-    std::map<double,int,std::greater<double>> upperBounds = sortedlogDetUB(Omega, Delta_ells,
-                                                            subset,image, probFeatureTracked);
+  // combined information of subset
+  omega_horizon_t OmegaS = omega_horizon_t::Zero();
+
+  // select the indices of the best features
+  for (int i=0; i<kappa; ++i) {
+
+    // compute upper bounds in form of <UB, featureId> descending by UB
+    auto upperBounds = sortedlogDetUB(Omega, OmegaS, Delta_ells, blacklist, image);
+
     // initialize the best cost function value and feature ID to worst case
-    double fMax = -1;
-    double lMax = -1;
+    double fMax = -1.0;
+    int lMax = -1;
+
     // iterating through upperBounds in descending order, check each feature
-    for (auto& fpair : upperBounds) // why doesn't this work: (auto&& [first,second] : upperBounds)
-    {
-      double ub = fpair.first;
+    for (const auto& fpair : upperBounds) {
       int feature_id = fpair.second;
-      // lazy evaluation: break if upper bound is less than the current best
-      //                                                 cost function value
-      if (ub < fMax)
-      {
-        break;
-      }
-      // calculate the cost function for each feature and store the best one
-      image_t proposedSubset = makeNewSubset(subset,feature_id,image);
-      double fValue = logDet(proposedSubset, Omega, Delta_ells, probFeatureTracked);
-      if (fValue > fMax)
-      {
+      double ub = fpair.first;
+
+      // lazy evaluation: break if UB is less than the current best cost
+      if (ub < fMax) break;
+ 
+      // convenience: the information matrix corresponding to this feature
+      const auto& Delta_ell = Delta_ells.at(feature_id);
+
+      // find probability of this feature being tracked
+      double p = 1.0; // image.at(feature_id)[0].second.coeff(??);
+
+      // calculate logdet efficiently (with regulizer to ensure PSD)
+      omega_horizon_t reg = 1.0*omega_horizon_t::Identity();
+      double fValue = Utility::logdet(Omega + OmegaS + p*Delta_ell + reg, true);
+
+      // nan check
+      if (std::isnan(fValue)) ROS_ERROR_STREAM("nan! increase strength of regularizer.");
+
+      // store this feature/reward if better than before
+      if (fValue > fMax) {
         fMax = fValue;
         lMax = feature_id;
       }
     }
-    // add feature that returns the most information to the subset
-    image_t newSubset = makeNewSubset(subset,lMax,image); // placeholder
-    subset = newSubset;
+
+    // if lMax == -1 there was likely a nan (probably because roundoff error
+    // caused det(M) < 0). I guess there just won't be a feature this iter.
+    if (lMax > -1) {
+      // Accumulate combined feature information in subset
+      double p = 1.0; // image.at(lMax)[0].second.coeff(??);
+      OmegaS += p*Delta_ells.at(lMax);
+
+      // add feature that returns the most information to the subset
+      subset[lMax] = image.at(lMax);
+
+      // mark as used
+      blacklist.push_back(lMax);
+    }
   }
+
   // return the subset to estimator_node.cpp
   subset.swap(image);
 }
-// ----------------------------------------------------------------------------
-image_t FeatureSelector::makeNewSubset(image_t currentSubset, double featureIDToAdd,
-   image_t image) {
-  currentSubset[featureIDToAdd] = image[featureIDToAdd];
-  return currentSubset; // currentSubset is now the new subset
-}
 
 // ----------------------------------------------------------------------------
-double FeatureSelector::logDet(image_t& currentSubset,
-                               const omega_horizon_t& Omega,
-                               const delta_ls& Delta_ells,
-                               Eigen::VectorXd& probFeatureTracked)
+
+std::map<double, int, std::greater<double>> FeatureSelector::sortedlogDetUB(
+  const omega_horizon_t& Omega, const omega_horizon_t& OmegaS,
+  const std::map<int, omega_horizon_t>& Delta_ells,
+  const std::vector<int>& blacklist, const image_t& image)
 {
-  // sum up second part of Eq. 9
-  omega_horizon_t Delta_ells_sum;
-  for (const auto& fpair : currentSubset) {
+  // returns a descending sorted map with upper bound as the first key,
+  // and feature id as the value for all features in image
+  std::map<double, int, std::greater<double>> UBs;
+
+  // Partially create argument to UB function (see eq 9). The only thing
+  // missing from this is the additive and expected information from the
+  // l-th feature. Each is added one at a time (independently) to calc UB
+  const omega_horizon_t M = Omega + OmegaS;
+
+  // Find the upper bound of adding each Delta_ell to M independently
+  for (const auto& fpair : Delta_ells) {
     int feature_id = fpair.first;
-    Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureTracked[feature_id];
+
+    // if a feature was already selected, do not calc UB. Not including it
+    // in the UBs prevents it from being selected again.
+    bool in_blacklist = std::find(blacklist.begin(), blacklist.end(),
+                                  feature_id) != blacklist.end();
+    if (in_blacklist) continue;
+
+    // find probability of this feature being tracked
+    double p = 1.0; // image.at(feature_id)[0].second.coeff(??);
+
+    // construct the argument to the logdetUB function
+    omega_horizon_t A = M + p*Delta_ells.at(feature_id);
+
+    // calculate upper bound (eq 29)
+    double ub = A.diagonal().array().log().sum();
+
+    // store in map for automatic sorting (desc) and easy lookup
+    UBs[ub] = feature_id;
   }
-  // use utility to calculate logdet efficiently
-  return Utility::logdet(Omega + Delta_ells_sum, true);
-}
 
-// ----------------------------------------------------------------------------
-
-std::map<double,int,std::greater<double>> FeatureSelector::sortedlogDetUB(const omega_horizon_t& Omega,
-                                 const delta_ls& Delta_ells, image_t& subset,
-                                 const image_t& image, Eigen::VectorXd& probFeatureTracked)
-{
-  // returns a descending sorted map with upper bound as the first key, and
-  // feature ID as the value for all features in image
-  std::map<double,int,std::greater<double>> logDetUpperBound;
-  for (const auto& fpair : image)
-  {
-      int featureIDToAdd = fpair.first;
-      image_t proposedSubset = makeNewSubset(subset, featureIDToAdd, image);
-      omega_horizon_t Delta_ells_sum;
-      // sum up Eq. 9
-      for (const auto& fpair : proposedSubset)
-      {
-          int feature_id = fpair.first;
-          Delta_ells_sum += Delta_ells.at(feature_id)*probFeatureTracked[feature_id];
-      }
-      omega_horizon_t costFunction = Omega + Delta_ells_sum;
-      // calculate upper bound according to Eq. 29
-      double logDetUBValue;
-      for (int i = 0; i < STATE_SIZE*(HORIZON+1); i++)
-      {
-          logDetUBValue += log(costFunction(i,i));
-      }
-      logDetUpperBound[logDetUBValue] = featureIDToAdd;
-  }
-  return logDetUpperBound;
-}
-
-// ----------------------------------------------------------------------------
-// In case we have extra time for another cost function (though we know to be slower)
-double FeatureSelector::minEig(const omega_horizon_t& Omega,
-                               const delta_ls& Delta_ells)
-{
-  return 0;
-}
-
-// ----------------------------------------------------------------------------
-// In case we have extra time for another cost function (though we know to be slower)
-double FeatureSelector::minEigUB(const omega_horizon_t& Omega,
-                                 const delta_ls& Delta_ells)
-{
-  return 0;
+  return UBs;
 }
 
 // ----------------------------------------------------------------------------

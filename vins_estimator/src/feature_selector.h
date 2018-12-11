@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <algorithm>
 #include <utility>
 #include <iostream>
 #include <vector>
@@ -70,7 +71,12 @@ private:
 
   Estimator& estimator_; ///< Reference to vins estimator object
 
-  bool visualize_ = true;
+  /**
+   * @brief This is the largest feature_id from the previous frame.
+   *        In other words, every feature_id that is larger than
+   *        this id is considered a new feature to be selected.
+   */
+  int lastFeatureId_ = 0;
 
   // extrinsic parameters: camera frame w.r.t imu frame
   Eigen::Quaterniond q_IC_;
@@ -112,7 +118,7 @@ private:
     inline double kdtree_get_pt(const size_t idx, const size_t dim) const
     {
         if (dim == 0) return pts[idx].first;
-        else if (dim == 1) return pts[idx].second;
+        else /*if (dim == 1)*/ return pts[idx].second;
     }
 
     // Optional bounding-box computation: return false to default to a standard bbox computation loop.
@@ -125,6 +131,15 @@ private:
   // nanoflann kdtree for guessing depth from existing landmarks
   typedef nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<double, PointCloud>, PointCloud, 2/*dim*/> my_kd_tree_t;
   std::unique_ptr<my_kd_tree_t> kdtree_;
+
+  /**
+   * @brief      Split features on the provided key
+   *
+   * @param[in]  k          feature_id to split on (k will not be in image_new)
+   * @param      image      Feature set to split
+   * @param      image_new  Any features with id after k
+   */
+  void splitOnFeatureId(int k, image_t& image, image_t& image_new);
 
   /**
    * @brief      Generate a future state horizon from k+1 to k+H
@@ -222,39 +237,9 @@ private:
    *
    * @return     void               Swaps out image set of features with subset
    */
-  void keepInformativeFeatures(image_t& image, int& kappa,
-          const omega_horizon_t& Omega_kkH,
-          const delta_ls& Delta_ells,
-          const delta_ls& Delta_used_ells,
-          Eigen::VectorXd& probFeatureTracked);
-
-  /**
-   * @brief      Make a new subset of type image_t
-   *
-   * @param[in]  image              Feature data in this image
-   * @param[in]  currentSubset      Current subset of features
-   * @param[in]  featureIDToAdd     Feature ID of feature that should be added
-   *
-   * @return     currentSubset      Now the new subset (with featureIDToAdd)
-   */
-
-  image_t makeNewSubset(image_t currentSubset, double featureIDToAdd, image_t image);
-
-  /**
-   * @brief      Calculate logDet cost function of imformation matrices
-   *
-   * @param[in]  currentSubset        Current subset of features
-   * @param[in]  Omega                IMU information matrix over horizon
-   * @param[in]  Delta_ells           Information matrices for each feature
-   * @param[in]  probFeatureTracked   Probability that feature is tracked
-   *
-   * @return     logDet value         Cost function for this subset
-   */
-
-  double logDet(image_t& currentSubset,
-                const omega_horizon_t& Omega,
-                const delta_ls& Delta_ells,
-                Eigen::VectorXd& probFeatureTracked);
+  void keepInformativeFeatures(image_t& image, int kappa,
+        const omega_horizon_t& Omega, const std::map<int, omega_horizon_t>& Delta_ells,
+        const std::map<int, omega_horizon_t>& Delta_used_ells);
 
   /**
    * @brief      Calculate and sort upper bounds of logDet cost function of
@@ -269,16 +254,8 @@ private:
    * @return     logDetUpperBound     Descending sorted map of upper bounds
    *                                  and feature IDs
    */
-
-  std::map<double,int,std::greater<double>> sortedlogDetUB(const omega_horizon_t& Omega,
-                        const delta_ls& Delta_ells, image_t& subset,
-                        const image_t& image, Eigen::VectorXd& probFeatureTracked);
-
-  // In case we have extra time for another cost function (though we know
-  // to be slower than logDet)
-  double minEig(const omega_horizon_t& Omega,
-                const delta_ls& Delta_ell);
-
-  double minEigUB(const omega_horizon_t& Omega,
-                  const delta_ls& Delta_ell);
+  std::map<double, int, std::greater<double>> sortedlogDetUB(
+      const omega_horizon_t& Omega, const omega_horizon_t& OmegaS,
+      const std::map<int, omega_horizon_t>& Delta_ells,
+      const std::vector<int>& blacklist, const image_t& image);
 };
