@@ -213,7 +213,26 @@ void pubKeyPoses(const Estimator &estimator, const std_msgs::Header &header)
 void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)
 {
     int idx2 = WINDOW_SIZE - 1;
-
+    //********************* Writing out camera pose estimate to file ***********
+    int i = idx2;
+    Vector3d P = estimator.Ps[i] + estimator.Rs[i] * estimator.tic[0];
+    Quaterniond R = Quaterniond(estimator.Rs[i] * estimator.ric[0]);
+    double timestampToFile = estimator.Headers[WINDOW_SIZE - 2].stamp.toSec();
+    std::ofstream file;
+    file.open("/home/soumya/vnav_proj_catkin_ws/src/Anticipated-VINS-Mono/support_files/results/poseEstimate.txt",ios::out | ios::app);
+    if (file.fail())
+        ROS_INFO("File failed to open");
+    file <<  std::setprecision(19) <<
+    timestampToFile << "," <<
+    P.x() <<  "," <<
+    P.y() <<  "," <<
+    P.z() <<  "," <<
+    R.x() <<  "," <<
+    R.y() <<  "," <<
+    R.z() <<  "," <<
+    R.w() << std::endl;
+    file.close();
+    //******************End writing out camera pose estimate to file ***********
     if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
     {
         int i = idx2;
@@ -230,7 +249,10 @@ void pubCameraPose(const Estimator &estimator, const std_msgs::Header &header)
         odometry.pose.pose.orientation.y = R.y();
         odometry.pose.pose.orientation.z = R.z();
         odometry.pose.pose.orientation.w = R.w();
-
+        std::ofstream file;
+        file.open("/home/soumya/vnav_proj_catkin_ws/src/Anticpated-VINS-Mono/support_files/results/poseEstimate.txt/poseEstimate.txt",ios::out | ios::app);
+        file << "test"<< std::endl;
+        file.close();
         pub_camera_pose.publish(odometry);
 
         cameraposevisual.reset();
@@ -275,7 +297,7 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
     margin_cloud.header = header;
 
     for (auto &it_per_id : estimator.f_manager.feature)
-    { 
+    {
         int used_num;
         used_num = it_per_id.feature_per_frame.size();
         if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
@@ -283,7 +305,7 @@ void pubPointCloud(const Estimator &estimator, const std_msgs::Header &header)
         //if (it_per_id->start_frame > WINDOW_SIZE * 3.0 / 4.0 || it_per_id->solve_flag != 1)
         //        continue;
 
-        if (it_per_id.start_frame == 0 && it_per_id.feature_per_frame.size() <= 2 
+        if (it_per_id.start_frame == 0 && it_per_id.feature_per_frame.size() <= 2
             && it_per_id.solve_flag == 1 )
         {
             int imu_i = it_per_id.start_frame;
