@@ -24,7 +24,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: current_point
   - Class: rviz/Displays
     Help Height: 78
     Name: Displays
@@ -85,7 +85,7 @@ Visualization Manager:
       Value: true
     - Class: rviz/Image
       Enabled: true
-      Image Topic: /feature_tracker/feature_img
+      Image Topic: /attention_viewer/output
       Max Value: 1
       Median window: 5
       Min Value: 0
@@ -137,7 +137,7 @@ Visualization Manager:
           Marker Topic: /vins_estimator/camera_pose_visual
           Name: camera_visual
           Namespaces:
-            {}
+            CameraPoseVisualization: true
           Queue Size: 100
           Value: true
         - Alpha: 1
@@ -205,13 +205,22 @@ Visualization Manager:
           Frame Timeout: 15
           Frames:
             All Enabled: true
+            body:
+              Value: true
+            camera:
+              Value: true
+            world:
+              Value: true
           Marker Scale: 1
           Name: TF
           Show Arrows: true
           Show Axes: true
           Show Names: true
           Tree:
-            {}
+            world:
+              body:
+                camera:
+                  {}
           Update Interval: 0
           Value: true
       Enabled: true
