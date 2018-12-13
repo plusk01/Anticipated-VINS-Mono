@@ -10,7 +10,7 @@ This feature selection problem can be stated as
 \end{equation}
 The solution of this problem relies on the selection of a metric $f$ that maps subsets of features to their usefulness.
 
-Although sensor selection problems have been shown to be NP-hard because of the introduction of binary selection variables, recent results have leveraged submodular cost functions to allow greedy algorithms to find efficiently solutions to Problem~\eqref{eqn:sensor-selection-problem} with guarantees on suboptimality~\cite{Shamaiah2010}.
+Although sensor selection problems have been shown to be NP-hard because of the introduction of binary selection variables, recent results have leveraged submodular cost functions to allow greedy algorithms to efficiently find solutions to Problem~\eqref{eqn:sensor-selection-problem} with guarantees on suboptimality~\cite{Shamaiah2010}.
 \pcl{define what a submodular set function is.}
 The goal then is to identify a performance metric that exhibits submodularity and captures the accuracy of VIO.
 
@@ -30,7 +30,7 @@ The remainder of this section discusses the computation of $\OmegabarkkH$ and $\
 \begin{figure}
 \centering
 \includegraphics[width=\columnwidth]{meas_timeline.pdf} 
-\caption{Timing diagram.}
+\caption{Timing diagram. Note that between the previous frame $k$ and the current frame $k+1$ at which we are selecting features, we have received IMU measurements. For future frames in the horizon, IMU measurements will be predicted by using the known rotation between frames and dividing by the expected number of IMU measurements between two frames. In our quaternion-based implementation, we use SLERP.}
 \label{fig:meas_timeline} 
 \end{figure}
 
@@ -55,52 +55,115 @@ Now we will look into how to calculate the information matrices.
 % =============================================================================
 \subsection{Anticipated Information from Robot Motion}\label{sub:info_motion}
 
-$\bar{\Omega}_{k:k+H}$ is given by the following equation.
-\begin{equation}
-    \bar{\Omega}_{k:k+H} = \bar{\Omega}_{k:k+H}^{IMU} + \bar{\Omega}_{k:k+H}^{PRIOR}
-    \label{eq:omega_IMU}
-\end{equation}
-Thus, we need to find $\bar{\Omega}_{k:k+H}^{IMU}$ and $\bar{\Omega}_{k:k+H}^{PRIOR}$. To find $\bar{\Omega}_{k:k+H}^{PRIOR}$, we know it is a $9(H+1)$ x $9(H+1)$ matrix that is 0 everywhere except for the top left block which is the prior on state k, $\bar{\Omega}_{k}^{PRIOR}$. This is found by retrieving the covariance of the state estimate at time k from the pose graph and inverting it to give the information matrix at time k. ($\bar{\Omega}_{k:k+H}^{PRIOR}$). \\ \\
-Next to find $\bar{\Omega}_{k:k+H}^{IMU}$, we use the following equation, which comes from the future IMU preintegration that is used to sum up IMU information from consecutive frames. 
-\begin{equation}
-    \bar{\Omega}_{k:k+H}^{IMU} = \sum_{kj \in H} (A^T_{kj}\bar{\Omega}_{kj}^{IMU}A_{kj})
-\end{equation}
-We assemble $A_{kj}$ as follows from the linearized dynamic model, where the position of $I_9$ is always the next consecutive frame from $k$ such that it is on the $(k+1)$th block.
-\[
-\begin{bmatrix}
-    0_{9x9} ... & A_{k} & I_9 & 0_{9x9} ... \\
-\end{bmatrix}\]
+In a visual-inertial navigation system, IMU measurements are used as inertial constraints between camera frames.
+While this adds valuable information, it also adds uncertainty due to intrinsic IMU noise and drift.
+To quantify this uncertainty (also referred to as information) during the expected robot maneuver over the horizon H, we need a model of how the IMU noise is propagated.
+This information is denoted $\OmegabarkkH^\text{IMU}$.
 
-where $A_{k}$ is given below.
-\[A_{k} = 
-\begin{bmatrix}
--I_3 & -I_3\delta_{kj} & N_{kj} \\
-0 & -I_3 & M_{kj} \\
-0 & 0 & -I_3 \
-\end{bmatrix}\]
-To find $N_kj$ and $M_kj$ in $A_{block}$, we use the following equations. 
-\begin{equation}
-    N_{kj} = \sum_{i=k}^{j-1}(j-i-\frac{1}{2})R_i\delta**2
-\end{equation}
-\begin{equation}
-    M_{kj} = \sum_{i=k}^{j-1}R_i\delta
-\end{equation}
-Next, to find $\Omega_{kj}^{IMU}$, we see that this is the information matrix associated with the noise $\eta_{kj}^{IMU}$. The equation for this is given below. 
-\[\Omega_{kj}^{IMU} = (cov(\eta_{kj}^{IMU}))^{-1} =
-\begin{bmatrix}
-\sigma_{IMU}^2CC^T & 0_{6x3} \\
-0_{3x6} & cov(\eta_{kj}^b) \\
-\end{bmatrix}
-\]
+As in~\cite{Carlone2017}, we assume that the rotation between consecutive frames is known from gyro forward-simulation and integration.
+Thus, the state at each frame $h$ in the horizon is $\xhat_h\triangleq\begin{bmatrix}\t_h&\v_h&\ba_h\end{bmatrix}$, where $\t_h\in\mathbb{R}^3$ and  $\v_h\in\mathbb{R}^3$ are the inertial position and velocity of the robot (i.e., the IMU frame), and $\ba_h\in\mathbb{R}^3$ is the time-varying accelerometer bias, expressed in the sensor frame.
+The effect of knowing the rotation is that we can formulate linear models which lessens the required computation time.
+By utilizing IMU preintegration theory~\cite{Forster2017}, we efficiently bundle the predicted IMU measurements between consecutive frames (see Figure~\ref{fig:meas_timeline}).
 
-Instead of calculating $CC^T$ through matrix multiplication, we can directly calculate each block entry as per the equation below.
-\[CC^T =
+Given that accelerometers measure specific force, a measurement $\acc_i\in\mathbb{R}^3$ received at time $i$ is modeled as
+\begin{equation}
+\accm_i = (\RWIh)^\top(\acc_i - \grav) + \ba_h + \boldsymbol\eta_h.
+\end{equation}
+By integrating the $\nimu$ measurements between two consecutive frames $h$ and $h'$, we arrive at the following equations (c.f.,~\cite[Appendix A]{Carlone2017})
+\begin{align}
+\zt &= \t_{h'} - \t_h - \v_h\nimu\delta + \N_{hh'}\ba_h + \boldsymbol\eta^{\t}_{hh'}\nonumber \\
+\zv &= \v_{h'} - \v_h + \M_{hh'}\ba_h + \boldsymbol\eta^{\v}_{hh'}\label{eqn:imu-sys} \\
+\zb &= \ba_{h'} - \ba_h + \boldsymbol\eta^{\ba}_{hh'}\nonumber,
+\end{align}
+where $\zt, \zv, \zb$ are virtual measurements whose values are not necessary to know, $\delta$ is the sampling period of the accelerometer and
+\begin{align*}
+\N_{hh'} &\triangleq \textstyle\sum_{i=0}^{\nimu-1} (\nimu - i - \frac{1}{2})\R_i\delta^2 \\
+\M_{hh'} &\triangleq \textstyle\sum_{i=0}^{\nimu-1} \R_i\delta \\
+\boldsymbol\eta^{\t}_{hh'} &\triangleq \textstyle\sum_{i=0}^{\nimu-1} (\nimu - i - \frac{1}{2})\R_i\boldsymbol\eta_i\delta^2 \\
+\boldsymbol\eta^{\v}_{hh'} &\triangleq \textstyle\sum_{i=0}^{\nimu-1} \R_i\boldsymbol\eta_i\delta.
+\end{align*}
+Note that this summations are IMU-rate: $\R_i$ is the incremental rotation from the $i-1$ IMU measurement to the $i$-th, with $\R_0=\I$, and $\boldsymbol\eta_i\sim\mathcal{N}(0, \sigma^2_\text{acc})$ is the discretized accelerometer noise.
+The random walk model on the bias is due to the noise $\boldsymbol\eta^{\ba}_{hh'}\sim\mathcal{N}(0,\sigma^2_{\ba})$, and we assume that the bias is constant between frames.
+
+We can then write the system of linear equations~\eqref{eqn:imu-sys} in the following compact form
+\begin{equation}
+\zimu = \A_{hh'}\xhatkkH + \boldsymbol\eta^\text{IMU}_{hh'},
+\end{equation}
+where
+\begin{equation*}
+\zimu=\begin{bmatrix}\zt\\\zv\\\zb\end{bmatrix}
+\qquad
+\etaimu=\begin{bmatrix}\boldsymbol\eta^{\t}_{hh'}\\\boldsymbol\eta^{\v}_{hh'}\\\boldsymbol\eta^{\ba}_{hh'}\end{bmatrix},
+\end{equation*}
+and $\A_{hh'}\in\mathbb{R}^{9\times9(H+1)}$ is a matrix of zeros except at the $h$ and $h'$ $9\times9$ sub-blocks, respectively:
+\begin{equation}
+\A_{hh'} =
+\begin{bmatrix}[c|ccc|c|c]
+       & -\I_3  & -\I_3\nimu\delta & \N_{hh'} &      &       \\
+\cdots &  \zero & -\I_3            & \M_{hh'} & \I_9 & \cdots\\
+       &  \zero & \zero            & -\I_3    &      &
+\end{bmatrix}.
+\end{equation}
+
+As we would like to calculate the information from preintegrating IMU measurements between consecutive frames $h$ and $h'$, we need to compute the covariance of the noise $\etaimu$, which is given by
+\begin{equation}
+(\OmegaIMU_{hh'})^{-1} = \cov(\etaimu) =
 \begin{bmatrix}
-(\sum_{i=k}^{j-1}(j-i-\frac{1}{2})^2)\delta^4 I_3 & (\sum_{i=k}^{j-1}(j-i-\frac{1}{2}))\delta^3 \\
-(\sum_{i=k}^{j-1}(j-i-\frac{1}{2}))\delta^3  &
-(j-k-1)\delta^2I_3 \\
+\sigma^2_\text{IMU}\C\C^\top & \zero_{6\times3} \\
+\zero_{3\times6} & \sigma^2_{\ba}
+\end{bmatrix},
+\end{equation}
+where
+\begin{small}
+\begin{equation*}
+\C\C^\top =
+\begin{bmatrix}
+(\sum_{i=0}^{\nimu-1} (\nimu - i - \frac{1}{2})^2)\delta^4\I   & (\sum_{i=0}^{\nimu-1} (\nimu - i - \frac{1}{2}))\delta^3\I \\
+(\sum_{i=0}^{\nimu-1} (\nimu - i - \frac{1}{2}))\delta^3\I     & \nimu\delta^2\I
 \end{bmatrix}
-\]
+\end{equation*}
+\end{small}
+
+Equipped with an expression for a model of the IMU preintegration between two consecutive frames, we can calculate the anticipated information from the IMU over the horizon as
+\begin{equation}\label{eqn:omega-imu-sum}
+\OmegabarkkH^\text{IMU} = \sum_{h,h'\in\mathsf{H}} (\A_{hh'}^\top\OmegaIMU_{hh'}\A_{hh'}),
+\end{equation}
+where $\mathsf{H}$ is the set of consecutive frames over the horizon.
+
+Note that this information matrix $\OmegabarkkH^\text{IMU}$ consists of only relative measurements (i.e., there is no constraint that ``pins'' down the information to a global reference).
+Therefore, $\OmegabarkkH^\text{IMU}$ is rank deficient.
+To rectify this, we need to use prior information from the VINS-Mono back end, denoted $\OmegabarkkH^\text{PRIOR}$, which consists of all zeros except for the upper-left $9\times9$ sub-block containing the prior from time $k$.
+Therefore, the anticipated information from robot motion over the horizon can be calculated as
+\begin{equation}
+\OmegabarkkH = \OmegabarkkH^\text{IMU} + \OmegabarkkH^\text{PRIOR}.
+\end{equation}
+
+\subsubsection*{Implementation Details}
+Ceres Solver does not have an elegant way to extract marginalized covariances.
+Because of this, VINS-Mono (in a fashion similar to OKVIS~\cite{Leutenegger2015}) has created supporting code in the form of a \texttt{MarginalizationFactor} to keep track of the sliding optimization window and the necessary residuals and Jacobians.
+Therefore, it is possible to retrieve $\OmegabarkkH^\text{PRIOR}$.
+However, due to lack of time and VINS-Mono comments/documentation, it became difficult to reverse engineer the \texttt{MarginalizationFactor} to efficiently extract the properly-ordered residuals to construct the information matrix.
+In light of this, we choose the upper-left $9\times9$ block of $\OmegabarkkH^\text{PRIOR}$ to be $\I_9$, which removes the rank deficiency, but does not add any relevant information.
+To truly take advantage of attention and anticipation, it would be important to successfully (and efficiently) extract this prior.
+
+In calculating $\OmegabarkkH^\text{IMU}$, we take advantage of the sparsity of each $\A_{hh'}$ matrix.
+For example, for $h=0$ (from frame $k$ to $k+1$), $\A_{hh'}^\top\OmegaIMU_{hh'}\A_{hh'}$ has the following structure
+\begin{flalign*}
+&\qquad\A_{hh'}^\top\OmegaIMU_{hh'}\A_{hh'} = &\\
+&\qquad\qquad
+\begin{bmatrix}
+\A_\text{blk}^\top\OmegaIMU\A_\text{blk} & \A_\text{blk}^\top\OmegaIMU & \zero_9 & \cdots \\
+\OmegaIMU\A_\text{blk} & \OmegaIMU & \zero_9 & \cdots \\
+\zero_9 & \zero_9 & \zero_9 & \cdots \\
+\vdots & \vdots & \vdots & \ddots
+\end{bmatrix},
+\end{flalign*}
+where the subscripts are implied and $\A_\text{blk}\in\mathbb{R}^{9\times9}$ is the non-zero, non-identity block of the corresponding $\A_{hh'}$.
+With each successive summing loop of~\eqref{eqn:omega-imu-sum}, the horizon counter $h$ is incremented and the four $9\times9$ blocks slide along the main diagonal.
+After all of these terms are summed, the resulting $\OmegabarkkH^\text{IMU}$ is a block tri-diagonal matrix.
+As a result of this insight, we can simply add $9\times9$ blocks to the appropriate locations of $\OmegabarkkH^\text{IMU}$.
+This prevents the inefficiencies of large matrix multiplications and additions which may result in round-off error.
+
 % =============================================================================
 \subsection{Anticipated Information from Visual Features}\label{sub:info_features}
 
@@ -114,7 +177,7 @@ where $\pWL$ is the position of the landmark with respect to the world frame and
 Our objective is to form a linear system in state-space form that is a function of our state horizon $\xhatkkH$.
 This will allow us to think about the problem as a maximum likelihood estimation problem so that we can extract the anticipated information gain of the feature given $\xhatkkH$.
 
-Since our state at each time step in the horizon is defined as $\xhat=\begin{bmatrix}\t&\v&\ba\end{bmatrix}$, where $\t$ and $\v$ are the position and velocity of the IMU frame with respect to the world, we need our linear system to be parameterized by those quantities.
+Since our state at each time step in the horizon is defined as $\xhat_h=\begin{bmatrix}\t_h&\v_h&\ba_h\end{bmatrix}$, where $\t_h$ and $\v_h$ are the position and velocity of the IMU frame with respect to the world, we need our linear system to be parameterized by those quantities.
 Luckily, the extrinsic transformation between the camera and IMU is known from calibration and we can write
 \begin{equation*}
 [\uhl]_\times((\RWIh\RIC)^\top(\pWL-(\tWIh+\RWIh\tIC))) = \nhl,
@@ -181,7 +244,7 @@ The Schur complement of $\OmegakkH^{(l)}$ is computed as
 \end{equation}
 which gives the additive contribution of anticipated information from the $l$-th feature to our state estimate and is used in the greedy algorithm.
 
-\subsubsection{Implementation Details}
+\subsubsection*{Implementation Details}
 Noting that the matrices in~\eqref{eqn:vision-model-stacked} are sparse, we can avoid large matrix multiplication by exploiting the sparsity patterns and reusing computation where possible.
 The stacked matrices $\F_l$ and $\E_l$ have the following structure (before removing degenerate rows):
 \begin{align}
@@ -249,7 +312,7 @@ First, we note that the second addend in the Schur complement in~\eqref{eqn:schu
 \g\zero_{6\times9}& \zero_{6\times3}&\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
 \end{bmatrix},
 \end{flalign*}
-where $\C_i=\B_i^\top\B_i$ and $\W=(\E_l^\top\E_l)^{-1}$ (which is only invertible if a landmark was seen by more than one future pose).
+where $\C_i\triangleq\B_i^\top\B_i$ and $\W\triangleq(\E_l^\top\E_l)^{-1}$ (which is only invertible if a landmark was seen by more than one future pose).
 Therefore, the final form of $\Delta_l$ is
 \begin{flalign}\label{eqn:delta-ell}
 &
@@ -264,5 +327,5 @@ Therefore, the final form of $\Delta_l$ is
 \g\zero_{6\times9}& \zero_{6\times3}&\zero_{6\times6} &\cdots&\zero_{6\times3}&\zero_{6\times6}\\
 \end{bmatrix},\nonumber
 \end{flalign}
-where $\D_{ij}=\C_i\W\C_j^\top$.
+where $\D_{ij}\triangleq\C_i\W\C_j^\top$.
 Finally, we note that when the camera at pose $\xhat_h$ did not see the $l$-th landmark, the corresponding rows and columns are zeroed out because that landmark offers no information for those state estimates.

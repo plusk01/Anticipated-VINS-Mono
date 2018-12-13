@@ -5,12 +5,28 @@
 \newcommand{\OmegakkH}{{\boldsymbol \Omega}_{k:k+H}}
 \newcommand{\OmegabarkkH}{\bar{\boldsymbol \Omega}_{k:k+H}}
 
-\renewcommand{\t}{\boldsymbol t}
-\renewcommand{\v}{\boldsymbol v}
-\newcommand{\ba}{\boldsymbol b_a}
-
 \newcommand{\logdet}{\text{log}\;\text{det}}
 \newcommand{\fdet}{f_\text{det}}
+
+% robot motion section
+\renewcommand{\t}{\boldsymbol t}
+\renewcommand{\v}{\boldsymbol v}
+\newcommand{\ba}{\boldsymbol b^a}
+\newcommand{\accm}{\tilde{\boldsymbol a}}
+\newcommand{\acc}{\boldsymbol a}
+\newcommand{\grav}{\boldsymbol g}
+\newcommand{\nimu}{m}
+\newcommand{\zt}{\boldsymbol z_{hh'}^{\t}}
+\newcommand{\zv}{\boldsymbol z_{hh'}^{\v}}
+\newcommand{\zb}{\boldsymbol z_{hh'}^{\ba}}
+\newcommand{\zimu}{\boldsymbol z_{hh'}^\text{IMU}}
+\newcommand{\etaimu}{\boldsymbol\eta^\text{IMU}_{hh'}}
+\newcommand{\N}{\boldsymbol N}
+\newcommand{\M}{\boldsymbol M}
+\newcommand{\R}{\boldsymbol R}
+\newcommand{\I}{\boldsymbol I}
+\newcommand{\cov}{\text{cov}}
+\newcommand{\OmegaIMU}{{\boldsymbol \Omega}^\text{IMU}}
 
 % feature information section
 \newcommand{\zero}{\boldsymbol 0}
@@ -38,3 +54,11 @@
 \newcommand{\cob}{\cellcolor{blue!10}}
 \newcommand{\cor}{\cellcolor{red!10}}
 \newcommand{\g}{\color{black!60}}
+
+% vertical cols in bmatrix: https://tex.stackexchange.com/a/33523
+\makeatletter
+\renewcommand*\env@matrix[1][*\c@MaxMatrixCols c]{%
+  \hskip -\arraycolsep
+  \let\@ifnextchar\new@ifnextchar
+  \array{#1}}
+\makeatother
