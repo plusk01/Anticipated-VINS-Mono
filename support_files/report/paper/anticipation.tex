@@ -44,48 +44,48 @@ The following subsections will discuss how to obtain these information matrices.
 
 The greedy algorithm with lazy evaluation involves the following steps. 
 \begin{enumerate}
-    \item The algorithm takes in $\bar{\Omega}_{k:k+H}$ (the $9(H+1)$ x $9(H+1)$ information matrix of the future states based solely on IMU and not new features) and $\Delta_l$ (the $9(H+1)$ x $9(H+1)$ x (num of features) information matrix of the future states associated with the l'th feature).
-    \item For each iteration over the number of features desired in the subset, upper bounds are computed that bounds the information gained by adding each feature to the current subset (\texttt{Upper\_bounds} function, and that list is sorted in descending order).
-    \item $f_{max}$ and $l_{max}$ are initialized to $-1$. For each landmark in the sorted upper bound list, we check if the upper bound is less than the current $f_{max}$, and if so, we break (lazy evaluation). If the upper bound is greater than the current $f_{max}$, then we calculate the objective function of the new proposed subset by adding that particular feature to the current subset (\texttt{F\_value} function); if it is greater than the current $f_{max}$, we keep track of this value for the next iteration, ultimately keeping track of the maximum $f_{max}$ for the feature that adds the most information to the current subset.
+    \item The algorithm takes in $\bar{\Omega}_{k:k+H}$ (the $9(H+1)$ x $9(H+1)$ information matrix of the future states based solely on IMU and features already seen rather than new features) and $\Delta_l$ (the $9(H+1)$ x $9(H+1)$ x (num of features) information matrix of the future states associated with the l'th feature).
+    \item For each iteration over the number of features desired in the subset, upper bounds are computed that bounds the information gained by adding each feature to the current subset.
+    \item After initializing the variables $f_{max}$ and $l_{max}$, we check if the upper bound is less than the current $f_{max}$ for each landmark in the sorted upper bound list; if so, we break on the for loop and and select the currently best feature (lazy evaluation). If the upper bound is greater than the current $f_{max}$, we calculate the objective function of the new proposed subset by adding that particular feature to the current subset; if it is greater than the current $f_{max}$, we keep track of this value for the next iteration, ultimately keeping track of the maximum $f_{max}$ for the feature that adds the most information to the current subset.
     \item This feature is added to the subset, and the iteration continues until $\kappa$ features are added to the subset.
 \end{enumerate}
-Now we will look in more detail at each step and how to calculate the necessary values to complete that step.
+Now we will look into how to calculate the information matrices.
 
 
 % =============================================================================
 \subsection{Anticipated Information from Robot Motion}\label{sub:info_motion}
 
-Finding $\bar{\Omega}_{k:k+H}$ is coded in function \texttt{Inf\_mat\_no\_features}. $\bar{\Omega}_{k:k+H}$ is given by the following equation.
+$\bar{\Omega}_{k:k+H}$ is given by the following equation.
 \begin{equation}
     \bar{\Omega}_{k:k+H} = \bar{\Omega}_{k:k+H}^{IMU} + \bar{\Omega}_{k:k+H}^{PRIOR}
     \label{eq:omega_IMU}
 \end{equation}
-Thus, we need to find $\bar{\Omega}_{k:k+H}^{IMU}$ and $\bar{\Omega}_{k:k+H}^{PRIOR}$. To find $\bar{\Omega}_{k:k+H}^{PRIOR}$, we know it is a $9(H+1)$ x $9(H+1)$ matrix that is 0 everywhere except for the top left block which is the prior on state k, $\bar{\Omega}_{k}^{PRIOR}$. This is a PLACEHOLDER function for now (\texttt{Cov\_current\_state})that just returns a 9x9 identity matrix multiplied by 0.1, but it should be a function that retrieves the covariance of the state estimate at time k and inverts it to give the information matrix at time k ($\bar{\Omega}_{k:k+H}^{PRIOR}$). \\ \\
-Next to find $\bar{\Omega}_{k:k+H}^{IMU}$, we can use the following equation.
+Thus, we need to find $\bar{\Omega}_{k:k+H}^{IMU}$ and $\bar{\Omega}_{k:k+H}^{PRIOR}$. To find $\bar{\Omega}_{k:k+H}^{PRIOR}$, we know it is a $9(H+1)$ x $9(H+1)$ matrix that is 0 everywhere except for the top left block which is the prior on state k, $\bar{\Omega}_{k}^{PRIOR}$. This is found by retrieving the covariance of the state estimate at time k from the pose graph and inverting it to give the information matrix at time k. ($\bar{\Omega}_{k:k+H}^{PRIOR}$). \\ \\
+Next to find $\bar{\Omega}_{k:k+H}^{IMU}$, we use the following equation, which comes from the future IMU preintegration that is used to sum up IMU information from consecutive frames. 
 \begin{equation}
     \bar{\Omega}_{k:k+H}^{IMU} = \sum_{kj \in H} (A^T_{kj}\bar{\Omega}_{kj}^{IMU}A_{kj})
 \end{equation}
-To find $A_{kj}$, we need to use the following equation, where the position of $I_9$ is indexed based upon which j currently on. The example equation below is $A_{kj}$ when the iteration is $j = k + 1$.
+We assemble $A_{kj}$ as follows from the linearized dynamic model, where the position of $I_9$ is always the next consecutive frame from $k$ such that it is on the $(k+1)$th block.
 \[
 \begin{bmatrix}
-    0_{9x9} ... & A_{block} & I_9 & 0_{9x9} ... \\
+    0_{9x9} ... & A_{k} & I_9 & 0_{9x9} ... \\
 \end{bmatrix}\]
 
-where $A_{block}$ is given below.
-\[A_{block} = 
+where $A_{k}$ is given below.
+\[A_{k} = 
 \begin{bmatrix}
 -I_3 & -I_3\delta_{kj} & N_{kj} \\
 0 & -I_3 & M_{kj} \\
 0 & 0 & -I_3 \
 \end{bmatrix}\]
-We insert $A_{block}$ at the (j x 9)th column of $A_kj$, and then we stack vertical $A_{kj}$ for different j's (same k), and then we stack depth-wise for different k's into one matrix A that is $9H$ x $9(H+1)$ x $H$ where H is the time horizon (number of k's). To find $N_kj$ and $M_kj$ in $A_{block}$, we use the following equations. 
+To find $N_kj$ and $M_kj$ in $A_{block}$, we use the following equations. 
 \begin{equation}
     N_{kj} = \sum_{i=k}^{j-1}(j-i-\frac{1}{2})R_i\delta**2
 \end{equation}
 \begin{equation}
     M_{kj} = \sum_{i=k}^{j-1}R_i\delta
 \end{equation}
-Next, to find $\Omega_{kj}^{IMU}$, we see that this is the information matrix associated with the noise $\eta_{kj}^{IMU}$ (inverse of the covariance of this noise). The equation for this is given below. 
+Next, to find $\Omega_{kj}^{IMU}$, we see that this is the information matrix associated with the noise $\eta_{kj}^{IMU}$. The equation for this is given below. 
 \[\Omega_{kj}^{IMU} = (cov(\eta_{kj}^{IMU}))^{-1} =
 \begin{bmatrix}
 \sigma_{IMU}^2CC^T & 0_{6x3} \\
@@ -93,7 +93,7 @@ Next, to find $\Omega_{kj}^{IMU}$, we see that this is the information matrix as
 \end{bmatrix}
 \]
 
-Eventually, we need to feed the correct $\eta_{kj}^b$, currently it is just a guess. To find $CC^T$, we use this equation.
+Instead of calculating $CC^T$ through matrix multiplication, we can directly calculate each block entry as per the equation below.
 \[CC^T =
 \begin{bmatrix}
 (\sum_{i=k}^{j-1}(j-i-\frac{1}{2})^2)\delta^4 I_3 & (\sum_{i=k}^{j-1}(j-i-\frac{1}{2}))\delta^3 \\
@@ -101,9 +101,6 @@ Eventually, we need to feed the correct $\eta_{kj}^b$, currently it is just a gu
 (j-k-1)\delta^2I_3 \\
 \end{bmatrix}
 \]
-Calculating all of this allows us to solve Equation \ref{eq:omega_IMU} for $\bar{\Omega}_{k:k+H}$ \\
-\textbf{Question: } $\bar{\Omega}_{k:k+H}$ is not positive definite???
-
 % =============================================================================
 \subsection{Anticipated Information from Visual Features}\label{sub:info_features}
 

@@ -1,3 +1,8 @@
 % !TEX root=../main.tex
 
 \section{Overview of VINS-Mono}\label{sec:vinsmono}
+
+In order to implement and test the attention and anticipation algorithm on real datasets, we needed to choose a VIO system. VINS-Mono is a state-of-the-art nonlinear optimization-based VIO system (and includes loop closures for a SLAM system). It is a pose-graph optimization based VIO that uses preintegrated IMU factors for its sliding window estimator, and is one of the most accurate VIO systems currently~\ref{delmerico2018benchmark}. \\
+The VINS-Mono system includes modules for initialization, tracking and IMU preintegration, VIO backend, and an optional loop closure module not used in this project. The entire system is real-time and can run onboard a drone. 
+\\
+For this project, the desired characteristics of the VIO system included that it be state-of-the-art, accurate, and potential for research use in the future. VINS-Mono fit this criteria, and is considered to be one of the best monocular VIO systems at this time. Delmerico and Scaramuzza found VINS-Mono to be the most accurate, robust, and consistent across hardware platforms, though also one of the more resource-intensive VIO systems \ref{delmerico2018benchmark}. We decided to use VINS-Mono for the VIO system while adding our components to the system architecture as seen in Figure~\ref{fig:architecture}. 

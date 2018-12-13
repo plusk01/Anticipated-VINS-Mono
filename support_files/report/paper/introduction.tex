@@ -6,6 +6,7 @@ During aggressive maneuvers, vision-based perception techniques tend to fail bec
 This is a well-known issue and is commonly reported in the literature (see for example,~\cite{Shen2013,Falanga2017}).
 The purpose of this project is to mitigate loss of feature tracks by being more clever in which features to use for graph-based state estimation.
 This adds robustness to the visual-inertial motion estimation pipeline by disregarding features that are predicted to soon be lost based on future robot motion.
+
 Further, we allow for more efficient optimization by using fewer features with high information content.
 
 This project accomplishes these goals by incorporating the attention and anticipation formulation of Carlone~\cite{Carlone2017} with the fixed-lag smoother of VINS-Mono~\cite{Qin2018}, a recent implementation of visual-inertial odometry that has been shown to perform well under power and payload constraints of aerial platforms~\cite{Delmerico2018}.
