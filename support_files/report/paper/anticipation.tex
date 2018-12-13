@@ -3,7 +3,7 @@
 \section{Attention and Anticipation}\label{sec:anticipation}
 
 The attention and anticipation algorithm~\cite{Carlone2017} selects a subset $\mathsf{S}$ of the features $\mathsf{F}$ detected in the current frame to pass to the VIO back end.
-The subset of features should have at most $\kappa$ features that are the most useful for reducing uncertainty in vision-based state estimation.
+The subset of features should have at most $\kappa$ features that are the most useful (as a set) for reducing uncertainty in vision-based state estimation.
 This feature selection problem can be stated as
 \begin{equation}\label{eqn:sensor-selection-problem}
 \max_{\mathsf{S}\subset\mathsf{F}} \quad f(\mathsf{S}) \qquad \text{subject to}\quad |\mathsf{S}|\le\kappa.
@@ -11,7 +11,7 @@ This feature selection problem can be stated as
 The solution of this problem relies on the selection of a metric $f$ that maps subsets of features to their usefulness.
 
 Although sensor selection problems have been shown to be NP-hard because of the introduction of binary selection variables, recent results have leveraged submodular cost functions to allow greedy algorithms to efficiently find solutions to Problem~\eqref{eqn:sensor-selection-problem} with guarantees on suboptimality~\cite{Shamaiah2010}.
-\pcl{define what a submodular set function is.}
+% \pcl{define what a submodular set function is.}
 The goal then is to identify a performance metric that exhibits submodularity and captures the accuracy of VIO.
 
 Following~\cite{Carlone2017}, we use the logdet metric to measure the volume of the estimation uncertainty ellipsoid up to scaling.
@@ -25,6 +25,8 @@ With these definitions, the logdet metric is written
 &= \logdet\left(\OmegabarkkH + \sum_{l\in\mathsf{S}}p_l\Delta_l\right),
 \end{align}
 where $\OmegabarkkH$ is the information matrix corresponding to the predicted robot motion over the horizon and $\Delta_l$ is the information matrix of the $l$-th feature.
+The $p_l$ is the probability that the $l$-th feature is tracked, which can come from normalizing the feature detection score.
+For more information on arriving at this probabilistic formulation, we refer the reader to~\cite{Carlone2017}.
 The remainder of this section discusses the computation of $\OmegabarkkH$ and $\Delta_l$, and the implementation of the greedy selection algorithm.
 
 \begin{figure}
@@ -42,13 +44,16 @@ The following greedy algorithm is used to approximately solve Problem~\eqref{eqn
 As input, it takes the number of features to select ($\kappa$), the anticipated information from future robot motion ($\OmegabarkkH$), the anticipated information from each new landmark ($\{\Delta_l\}_{l\in\mathsf{F}}$), and the current information of existing landmarks ($\{\Delta_l'\}_{l\in\mathsf{F}'}$).
 The following subsections will discuss how to obtain these information matrices.
 
-The greedy algorithm with lazy evaluation involves the following steps. 
+The greedy algorithm with lazy evaluation involves the following steps.
+To maintain consistent tracking of features, we keep track of features we have previously determined were informative.
+When these features are detected in future frames, they are automatically passed through to VINS-Mono.
+Therefore, $\kappa$ is chosen such that a certain number of features ($\bar{\kappa}$) is maintained at each time step $k$ and can be calculated as $\min(0, \bar{\kappa} - |\mathsf{F}'|)$.
 \begin{enumerate}
-    \item The algorithm takes in $\bar{\Omega}_{k:k+H}$ (the $9(H+1)$ x $9(H+1)$ information matrix of the future states based solely on IMU and features already seen rather than new features) and $\Delta_l$ (the $9(H+1)$ x $9(H+1)$ x (num of features) information matrix of the future states associated with the l'th feature).
-    \item For each iteration over the number of features desired in the subset, upper bounds are computed that bounds the information gained by adding each feature to the current subset.
-    \item After initializing the variables $f_{max}$ and $l_{max}$, we check if the upper bound is less than the current $f_{max}$ for each landmark in the sorted upper bound list; if so, we break on the for loop and and select the currently best feature (lazy evaluation). If the upper bound is greater than the current $f_{max}$, we calculate the objective function of the new proposed subset by adding that particular feature to the current subset; if it is greater than the current $f_{max}$, we keep track of this value for the next iteration, ultimately keeping track of the maximum $f_{max}$ for the feature that adds the most information to the current subset.
+    \item For each iteration over the number of features desired in the subset, upper bounds are computed that bound the information gained by adding each feature to the current subset.
+    \item After initializing the variables $f_\text{max}$ and $l_\text{max}$, we check if the upper bound is less than the current $f_\text{max}$ for each landmark in the sorted upper bound list; if so, we break our of the loop and and select the current best feature (lazy evaluation). If the upper bound is greater than the current $f_\text{max}$, we calculate the objective function of the new proposed subset by adding that particular feature to the current subset; if it is greater than the current $f_\text{max}$, we keep track of this value for the next iteration, ultimately keeping track of the maximum $f_\text{max}$ for the feature that adds the most information to the current subset.
     \item This feature is added to the subset, and the iteration continues until $\kappa$ features are added to the subset.
 \end{enumerate}
+
 Now we will look into how to calculate the information matrices.
 
 
