@@ -22,7 +22,7 @@ Moreover, let $\PkkH$ be the covariance of the estimation error corresponding to
 With these definitions, the logdet metric is written
 \begin{align}
 \fdet(\mathsf{S}) &= \logdet(\OmegakkH(\mathsf{S}))\\
-&= \logdet\left(\OmegabarkkH + \sum_{l\in\mathsf{S}}\Delta_l\right),
+&= \logdet\left(\OmegabarkkH + \sum_{l\in\mathsf{S}}p_l\Delta_l\right),
 \end{align}
 where $\OmegabarkkH$ is the information matrix corresponding to the predicted robot motion over the horizon and $\Delta_l$ is the information matrix of the $l$-th feature.
 The remainder of this section discusses the computation of $\OmegabarkkH$ and $\Delta_l$, and the implementation of the greedy selection algorithm.

@@ -104,7 +104,7 @@ void AttentionViewerROS::callback(const sensor_msgs::ImageConstPtr& _img,
 
     } else { // this feature was never chosen
       auto color = cv::Scalar(0, 255, 0);
-      cv::circle(img, pix, 1, color, 1);
+      cv::circle(img, pix, 2, color, 1);
     }
   }
 
