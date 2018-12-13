@@ -9,6 +9,8 @@ During aggressive maneuvers, vision-based perception techniques tend to fail bec
 
 ## Architecture
 
+Anticipated VINS-Mono builds off of the publicly available [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) ROS implementation. We have 
+
 <p align="center">
 <img src="support_files/arch.png" width="79%" />
 </p>

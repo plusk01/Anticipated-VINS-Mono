@@ -31,12 +31,27 @@ Parameters used are given in Table~\ref{tab:parameters} with a timing summary in
 \label{fig:architecture} 
 \end{figure}
 
-\begin{figure}
-	\centering
-	\includegraphics[width=\columnwidth]{tableVNAVresults.png} 
-	\caption{Results of Anticipated VINS-Mono on EuRoC datasets against benchmarks \textit{quality} and \textit{random}.}
-	\label{tab:results} 
-\end{figure}
+\begin{table}[h]
+\centering
+\caption{Results of Anticipated VINS-Mono on EuRoC datasets against benchmarks \textit{quality} and \textit{random}}
+\begin{tabular}{*{5}{c}}
+    \toprule
+     &  & RTE (m) & RTE - med. (m) & ATE (m) \\
+    \midrule
+    MH\_02 (10) & Anticipate & 4.589 & 0.48 & 2.19 \\ 
+    MH\_02 (10) & Quality & 0.887 & 0.653 &15850 \\ 
+    MH\_02 (10) & Random & 4.60 & 0.4801 & 1.934 \\ 
+    \midrule
+    MH\_02 (30) & Anticipate & 4.595 & 0.288 & 0.2021 \\ 
+    MH\_02 (30) & Quality & 4.605 & 0.2925 & 0.2632 \\ 
+    MH\_02 (30) & Random & 4.594 & 0.3058 & 0.3063 \\ 
+    \midrule
+    MH\_05 (30) & Anticipate & 2.23 & 1.097 & 10881 \\ 
+    MH\_05 (30) & Quality & 2.2 & 1.07 & 7.874\\ 
+    \bottomrule
+\end{tabular}
+\label{tab:results}
+\end{table}
 
 \begin{table}[h]
 \centering
