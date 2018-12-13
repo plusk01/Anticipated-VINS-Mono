@@ -120,10 +120,10 @@ FeatureSelector::select(image_t& image,
   //
 
   // Calculate the information content from motion over the horizon (eq 15)
-  auto OmegaIMU_kkH = calcInfoFromRobotMotion(state_kkH, nrImuMeasurements, deltaImu);
+  auto Omega_kkH = calcInfoFromRobotMotion(state_kkH, nrImuMeasurements, deltaImu);
 
-  // Add in prior information (eq 16)
-  auto Omega_kkH = addOmegaPrior(OmegaIMU_kkH);
+  // Add in prior information to OmegaIMU_kkH (eq 16)
+  addOmegaPrior(Omega_kkH);
 
   // Calculate the information content of each of the new features
   auto Delta_ells = calcInfoFromFeatures(image_new, state_kkH);
@@ -505,10 +505,10 @@ omega_horizon_t FeatureSelector::calcInfoFromRobotMotion(
     auto mats = createLinearImuMatrices(Qi, Qj, nrImuMeasurements, deltaImu);
 
     // convenience: select sub-blocks to add to, based on h
-    Eigen::Ref<Eigen::MatrixXd> block1 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, (h-1)*STATE_SIZE);
-    Eigen::Ref<Eigen::MatrixXd> block2 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, h*STATE_SIZE);
-    Eigen::Ref<Eigen::MatrixXd> block3 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, (h-1)*STATE_SIZE);
-    Eigen::Ref<Eigen::MatrixXd> block4 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, h*STATE_SIZE);
+    Eigen::Ref<omega_t> block1 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, (h-1)*STATE_SIZE);
+    Eigen::Ref<omega_t> block2 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>((h-1)*STATE_SIZE, h*STATE_SIZE);
+    Eigen::Ref<omega_t> block3 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, (h-1)*STATE_SIZE);
+    Eigen::Ref<omega_t> block4 = Omega_kkH.block<STATE_SIZE, STATE_SIZE>(h*STATE_SIZE, h*STATE_SIZE);
 
     // At*Ω*A (top-left sub-block)
     block1 += mats.second.transpose()*mats.first*mats.second;
@@ -600,9 +600,13 @@ std::pair<omega_t, ablk_t> FeatureSelector::createLinearImuMatrices(
 
 // ----------------------------------------------------------------------------
 
-omega_horizon_t FeatureSelector::addOmegaPrior(const omega_horizon_t& OmegaIMU)
+void FeatureSelector::addOmegaPrior(Eigen::Ref<omega_horizon_t> Omega)
 {
-  return OmegaIMU;
+  // upper-left sub-block -- use identity for now to keep det(OmegakkH) > 0
+  omega_t OmegaPrior = omega_t::Identity();
+
+  // Add the prior to (upper-left) OmegaIMU (input)
+  Omega.block<STATE_SIZE, STATE_SIZE>(0, 0) += OmegaPrior;
 }
 
 // ----------------------------------------------------------------------------
@@ -650,12 +654,11 @@ std::vector<int> FeatureSelector::selectInformativeFeatures(image_t& subset,
       // find probability of this feature being tracked
       double p = 1.0; // image.at(feature_id)[0].second.coeff(??);
 
-      // calculate logdet efficiently (with regulizer to ensure PSD)
-      omega_horizon_t reg = 1.0*omega_horizon_t::Identity();
-      double fValue = Utility::logdet(Omega + OmegaS + p*Delta_ell + reg, true);
+      // calculate logdet efficiently
+      double fValue = Utility::logdet(Omega + OmegaS + p*Delta_ell, true);
 
       // nan check
-      if (std::isnan(fValue)) ROS_ERROR_STREAM("nan! increase strength of regularizer.");
+      if (std::isnan(fValue)) ROS_ERROR_STREAM("logdet returned nan!");
 
       // store this feature/reward if better than before
       if (fValue > fMax) {

@@ -237,7 +237,12 @@ private:
       const Eigen::Quaterniond& Qi, const Eigen::Quaterniond& Qj,
       double nrImuMeasurements, double deltaImu);
 
-  omega_horizon_t addOmegaPrior(const omega_horizon_t& OmegaIMU);
+  /**
+   * @brief         Add OmegaPrior (from back end) to IMU prop information
+   *
+   * @param[inout]  Omega  The omega from IMU prop (OmegaIMU)
+   */
+  void addOmegaPrior(Eigen::Ref<omega_horizon_t> Omega);
 
   /**
    * @brief      Run lazy and greedy selection of features
