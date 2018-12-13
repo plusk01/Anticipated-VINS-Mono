@@ -14,7 +14,7 @@ The results are given in Figure~\ref{tab:results}.
 We can see that Anticipated VINS-Mono does better than both \textit{quality} and \textit{random} in certain cases.
 With the 10 features on the easier dataset, Anticipated VINS-Mono does better than \textit{random} and better than \textit{quality} as quality ended up being unstable.
 With 30 features, Anticipated VINS-Mono does better than \textit{quality} and \textit{random} again, with lower absolute translational error (ATE) and rotational translational error (RTE).
-However, Anticipated-VINS Mono does not perform well on MH\_05, the more difficult dataset, whereas \textit{quality} still produces a meaningful pose estimate.
+However, Anticipated VINS-Mono does not perform well on MH\_05, the more difficult dataset, whereas \textit{quality} still produces a meaningful pose estimate.
 
 There are a few reasons that could explain why Anticipated VINS-Mono does not work perfectly.
 Calculating $\OmegakkH^\text{PRIOR}$ was not implemented in the algorithm itself due to time constraints in retrieving it from VINS-Mono backend.
@@ -27,14 +27,14 @@ Parameters used are given in Table~\ref{tab:parameters} with a timing summary in
 \begin{figure}
 \centering
 \includegraphics[width=\columnwidth]{mh5_leftyaw} 
-\caption{Snapshot of EuRoC \texttt{MH\_05\_difficult} during a sharp left turn. Possible selections (new detections) are shown in green, selected features in blue, and tracked features in red. Notice how \texttt{Anticipated VINS-Mono} selects the majority of its features on the left side of the frame.}
+\caption{Snapshot of EuRoC \texttt{MH\_05\_difficult} during a sharp left turn. Possible selections (new detections) are shown in green, selected features in blue, and tracked features in red. Notice how Anticipated VINS-Mono selects the majority of its features on the left side of the frame.}
 \label{fig:architecture} 
 \end{figure}
 
 \begin{figure}
 	\centering
 	\includegraphics[width=\columnwidth]{tableVNAVresults.png} 
-	\caption{Results of Anticipated VINS-Mono on EuRoC datasets against benchmarks \textit{quality} and \textit{random}}
+	\caption{Results of Anticipated VINS-Mono on EuRoC datasets against benchmarks \textit{quality} and \textit{random}.}
 	\label{tab:results} 
 \end{figure}
 
