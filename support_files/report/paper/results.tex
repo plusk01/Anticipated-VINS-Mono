@@ -1,3 +1,22 @@
 % !TEX root=../main.tex
 
 \section{Results}\label{sec:results}
+
+To test our implementation, we used the EuRoC datasets~\cite{Burri2016}.
+
+
+\begin{table}[h]
+    \centering
+    \caption{Timing Statistics on EuRoC MH\_05\_difficult}
+    \begin{tabular}{clc}
+        \toprule
+        Thread & Component & Time (ms) \\
+        \midrule
+        1 & Feature Tracker & 18 \\
+        \midrule
+        2 & Feature Selector & 9 \\
+          & Windowed Optimization (1 sec) & 30 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:timing}
+\end{table}

@@ -345,10 +345,7 @@ void process()
             // ----------------------------------------------------------------
 
             // run vins estimator on selected subset of features
-            static TicToc t_est("est_cost");
-            t_est.tic();
             estimator.processImage(image, img_msg->header);
-            t_est.toc();
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
