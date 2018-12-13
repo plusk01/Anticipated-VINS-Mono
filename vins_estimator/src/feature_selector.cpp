@@ -104,6 +104,22 @@ FeatureSelector::select(image_t& image,
   // updated the largest feature_id for the next iteration (if different).
   if (!image_new.empty()) lastFeatureId_ = image_new.crbegin()->first;
 
+  // the subset of features to pass to VINS-Mono back end
+  image_t subset;
+
+  // add in previously tracked features
+  for (auto fid : trackedFeatures_) {
+    // attempt to retrieve this feature from image
+    auto feature = image.find(fid);
+    if (feature != image.end()) {
+      subset[fid] = feature->second;
+    }
+
+    // NOTE: We are not removing not found features because they could
+    // pop up again (i.e., loop-closure (?), missed detections, etc.)
+  }
+  // ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
+                  // " of " << trackedFeatures_.size() << " known features");
 
   //
   // Future State Generation
@@ -130,7 +146,7 @@ FeatureSelector::select(image_t& image,
 
   // Calculate the information content of each of the currently used features
   std::map<int, omega_horizon_t> Delta_used_ells;
-  Delta_used_ells = calcInfoFromFeatures(image, state_kkH);
+  Delta_used_ells = calcInfoFromFeatures(subset, state_kkH);
 
 
   //
@@ -139,23 +155,6 @@ FeatureSelector::select(image_t& image,
 
   // Has VINS-Mono initialized?
   bool initialized = estimator_.solver_flag == Estimator::SolverFlag::NON_LINEAR;
-
-  // the subset of features to pass to VINS-Mono back end
-  image_t subset;
-
-  // add in previously tracked features
-  for (auto fid : trackedFeatures_) {
-    // attempt to retrieve this feature from image
-    auto feature = image.find(fid);
-    if (feature != image.end()) {
-      subset[fid] = feature->second;
-    }
-
-    // NOTE: We are not removing not found features because they could
-    // pop up again (i.e., loop-closure (?), missed detections, etc.)
-  }
-  // ROS_WARN_STREAM("Feature subset initialized with " << subset.size() << " out"
-                  // " of " << trackedFeatures_.size() << " known features");
 
   // We would like to only track N features total (including currently tracked
   // features). Therefore, we will calculate how many of the new features should
