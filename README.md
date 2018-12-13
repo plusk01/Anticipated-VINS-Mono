@@ -7,9 +7,30 @@ During aggressive maneuvers, vision-based perception techniques tend to fail bec
 - L. Carlone and S. Karaman, **Attention and Anticipation in Fast Visual-Inertial Navigation**, 2017 IEEE International Conference on Robotics and Automation (ICRA), Singapore, 2017, pp. 3886-3893. [pdf](https://arxiv.org/abs/1610.03344)
 - T. Qin, P. Li and S. Shen, **[VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono): A Robust and Versatile Monocular Visual-Inertial State Estimator**, in IEEE Transactions on Robotics, vol. 34, no. 4, pp. 1004-1020, Aug. 2018. [pdf](https://ieeexplore.ieee.org/document/8421746/?arnumber=8421746&source=authoralert)
 
+## Getting Started
+
+To see Anticipated VINS-Mono in action, make sure to download some of the EuRoC datasets.
+
+After cloning this repo (on the `anticipation` branch) into your catkin workspace and building, run the following commands (change the sequence/bag name appropriately) in three separate terminals:
+
+```bash
+# remember to source!
+$ roslaunch vins_estimator euroc.launch sequence_name:=MH_05_difficult
+```
+
+```bash
+# be sure to cd into the appropriate directory
+rosbag play MH_05_difficult.bag --clock --pause
+```
+
+```bash
+# remember to source!
+$ roslaunch vins_estimator vins_rviz.launch
+```
+
 ## Architecture
 
-Anticipated VINS-Mono builds off of the publicly available [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) ROS implementation. We have 
+Anticipated VINS-Mono builds off of the publicly available [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono) ROS implementation. We have added anticipation and attention components as illustrated in the block diagram below. Only the Ceres Solver-based `VIO Backend` block is from VINS-Mono.
 
 <p align="center">
 <img src="support_files/arch.png" width="79%" />
@@ -34,6 +55,11 @@ The following are new files, implemented as part of the anticipation algorithm.
 [4]: https://github.com/plusk01/Anticipated-VINS-Mono/blob/anticipation/vins_estimator/src/feature_selector.cpp
 [5]: https://github.com/plusk01/Anticipated-VINS-Mono/blob/anticipation/vins_estimator/src/utility/horizon_generator.h
 [6]: https://github.com/plusk01/Anticipated-VINS-Mono/blob/anticipation/vins_estimator/src/utility/horizon_generator.cpp
+
+## More Information
+
+- Presentation: [Google Slides](https://docs.google.com/presentation/d/1oAt2vVqOZW8N5FfBAA4J-wxXY9Zx1KC5-ij9O4tS1UA/edit?usp=sharing)
+- Report: [PDF](https://github.com/plusk01/Anticipated-VINS-Mono/tree/anticipation/support_files/report/main.pdf)
 
 ## Authors
 
