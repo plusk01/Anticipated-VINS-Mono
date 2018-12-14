@@ -14,7 +14,6 @@
 #include "parameters.h"
 #include "utility/visualization.h"
 
-
 Estimator estimator;
 std::shared_ptr<FeatureSelector> f_selector;
 
@@ -301,7 +300,7 @@ void process()
             ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
             TicToc t_s;
-            map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
+            image_t image;
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
                 int v = img_msg->channels[0].values[i] + 0.5;
@@ -314,9 +313,10 @@ void process()
                 double p_v = img_msg->channels[2].values[i];
                 double velocity_x = img_msg->channels[3].values[i];
                 double velocity_y = img_msg->channels[4].values[i];
+                double prob = img_msg->channels[5].values[i];
                 ROS_ASSERT(z == 1);
-                Eigen::Matrix<double, 7, 1> xyz_uv_velocity;
-                xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y;
+                Eigen::Matrix<double, 8, 1> xyz_uv_velocity;
+                xyz_uv_velocity << x, y, z, p_u, p_v, velocity_x, velocity_y, prob;
                 image[feature_id].emplace_back(camera_id,  xyz_uv_velocity);
             }
 
@@ -344,8 +344,20 @@ void process()
 
             // ----------------------------------------------------------------
 
+            // this is not the best way to do this, but I don't want
+            // to change VINS-Mono too much. Since our image_t has 8 rows
+            // for the probability, we now convert to 7 for VINS-Mono
+            map<int, vector<pair<int, Matrix<double, 7, 1>>>> image7;
+            for (const auto& fpair : image) {
+                int fid = fpair.first;
+                // keep only the top 7 elements
+                Matrix<double, 7, 1> feature = fpair.second[0].second.head<7>();
+                // replace it
+                image7[fid] = {{fpair.second[0].first, feature}};
+            }
+
             // run vins estimator on selected subset of features
-            estimator.processImage(image, img_msg->header);
+            estimator.processImage(image7, img_msg->header);
 
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);

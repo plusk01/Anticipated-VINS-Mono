@@ -67,6 +67,7 @@ void AttentionViewerROS::callback(const sensor_msgs::ImageConstPtr& _img,
     int id = static_cast<int>(_features->channels[0].values[i]);
     auto pix = cv::Point2f(_features->channels[1].values[i], _features->channels[2].values[i]);
     auto vel = cv::Point2f(_features->channels[3].values[i], _features->channels[4].values[i]);
+    auto prob = _features->channels[5].values[i];
 
     bool isOld = std::find(oldIds.begin(), oldIds.end(), id) != oldIds.end();
     bool isNew = std::find(newIds.begin(), newIds.end(), id) != newIds.end();
@@ -88,6 +89,10 @@ void AttentionViewerROS::callback(const sensor_msgs::ImageConstPtr& _img,
 
       // draw feature
       cv::circle(img, pix, 2, color, 2);
+
+      // draw prob
+      auto scoreColor = cv::Scalar(0, 255*prob, 255*(1 - prob));
+      cv::circle(img, pix, 2, scoreColor, 1);
 
       // // draw velocity
       // constexpr double dt = 0.10;

@@ -97,7 +97,7 @@ FeatureSelector::select(image_t& image,
 
   // remove new features from image and put into image_new.
   // Image will only contain features that are currently being tracked.
-  // TODO: Is this true? Does VINS-Mono use all features in `image`?
+  // TODO: Is this true? Does VINS-Mono use *all* features given to it?
   image_t image_new;
   splitOnFeatureId(lastFeatureId_, image, image_new);
 
@@ -651,7 +651,7 @@ std::vector<int> FeatureSelector::selectInformativeFeatures(image_t& subset,
       const auto& Delta_ell = Delta_ells.at(feature_id);
 
       // find probability of this feature being tracked
-      double p = 1.0; // image.at(feature_id)[0].second.coeff(??);
+      double p = image.at(feature_id)[0].second.coeff(fPROB);
 
       // calculate logdet efficiently
       double fValue = Utility::logdet(Omega + OmegaS + p*Delta_ell, true);
@@ -670,7 +670,7 @@ std::vector<int> FeatureSelector::selectInformativeFeatures(image_t& subset,
     // caused det(M) < 0). I guess there just won't be a feature this iter.
     if (lMax > -1) {
       // Accumulate combined feature information in subset
-      double p = 1.0; // image.at(lMax)[0].second.coeff(??);
+      double p = image.at(lMax)[0].second.coeff(fPROB);
       OmegaS += p*Delta_ells.at(lMax);
 
       // add feature that returns the most information to the subset
@@ -712,7 +712,7 @@ std::map<double, int, std::greater<double>> FeatureSelector::sortedlogDetUB(
     if (in_blacklist) continue;
 
     // find probability of this feature being tracked
-    double p = 1.0; // image.at(feature_id)[0].second.coeff(??);
+    double p = image.at(feature_id)[0].second.coeff(fPROB);
 
     // construct the argument to the logdetUB function
     omega_horizon_t A = M + p*Delta_ells.at(feature_id);
