@@ -16,6 +16,9 @@
 
 #include "anticipation/cvmodified.h"
 
+// convenience location identifiers for measurement_t
+enum : int { mID=0, mPT=1, mSCORE=2, mNIP=3, mLIFE=4, mVEL=5 };
+
 namespace anticipation
 {
 
@@ -37,8 +40,8 @@ namespace anticipation
       double reprojErrorF = 1.0;
     };
 
-    // measurement: <id, pt, nip, lifetime, vel>
-    using measurement_t = std::tuple<unsigned int, cv::Point2f,
+    // measurement: <id, pt, score/prob, nip, lifetime, vel>
+    using measurement_t = std::tuple<unsigned int, cv::Point2f, float,
                                   cv::Point2f, unsigned int, cv::Point2f>;
 
     FeatureTracker(const std::string& calib_file, const Parameters& params);
@@ -66,6 +69,7 @@ namespace anticipation
     std::vector<cv::Point2f> features1_;    ///< current features
     std::vector<unsigned int> ids1_;        ///< unique id for each feature
     std::vector<unsigned int> lifetimes1_;  ///< how long each feat. has been tracked
+    std::vector<double> scores1_;           ///< detction score of each feature
 
     // counter for unique id generation
     unsigned int nextId_ = 1;
@@ -102,6 +106,7 @@ namespace anticipation
      */ 
     void detectFeatures(const cv::Mat& grey,
                         std::vector<cv::Point2f>& features,
+                        std::vector<float>& scores,
                         int maxCorners,
                         const cv::Mat& mask = cv::Mat());
 
@@ -135,7 +140,7 @@ namespace anticipation
     bool rejectWithF(std::vector<cv::Point2f>& features0);
 
     /**
-     * @brief      Create measurements (id, nip, lifetime, vel)
+     * @brief      Create measurements (measurement_t)
      *
      * @param[in]  features0  Features from the previous frame
      */

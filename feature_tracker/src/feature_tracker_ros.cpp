@@ -78,16 +78,18 @@ void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
   sensor_msgs::ChannelFloat32 pts_v;
   sensor_msgs::ChannelFloat32 vel_x;
   sensor_msgs::ChannelFloat32 vel_y;
+  sensor_msgs::ChannelFloat32 probs;
 
   cloud->header = msg->header;
   // cloud->header.frame_id = "world";
 
   for (size_t i=0; i<measurements.size(); ++i) {
-    auto id = std::get<0>(measurements[i]);
-    auto pt = std::get<1>(measurements[i]);
-    auto nip = std::get<2>(measurements[i]);
-    auto ell = std::get<3>(measurements[i]);
-    auto vel = std::get<4>(measurements[i]);
+    auto id = std::get<mID>(measurements[i]);
+    auto pt = std::get<mPT>(measurements[i]);
+    auto prob = std::get<mSCORE>(measurements[i]);
+    auto nip = std::get<mNIP>(measurements[i]);
+    auto ell = std::get<mLIFE>(measurements[i]);
+    auto vel = std::get<mVEL>(measurements[i]);
 
     geometry_msgs::Point32 cloud_pt;
     cloud_pt.x = nip.x;
@@ -100,6 +102,7 @@ void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
     pts_v.values.push_back(pt.y);
     vel_x.values.push_back(vel.x);
     vel_y.values.push_back(vel.y);
+    probs.values.push_back(prob);
   }
 
   cloud->channels.push_back(ids);
@@ -107,17 +110,19 @@ void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
   cloud->channels.push_back(pts_v);
   cloud->channels.push_back(vel_x);
   cloud->channels.push_back(vel_y);
+  cloud->channels.push_back(probs);
 
   features_pub_.publish(cloud);
 
   // optional feature visualization publish
   if (img_pub_.getNumSubscribers()) {
     for (size_t i=0; i<measurements.size(); ++i) {
-      auto id = std::get<0>(measurements[i]);
-      auto pt = std::get<1>(measurements[i]);
-      auto nip = std::get<2>(measurements[i]);
-      auto ell = std::get<3>(measurements[i]);
-      auto vel = std::get<4>(measurements[i]);
+      auto id = std::get<mID>(measurements[i]);
+      auto pt = std::get<mPT>(measurements[i]);
+      auto prob = std::get<mSCORE>(measurements[i]);
+      auto nip = std::get<mNIP>(measurements[i]);
+      auto ell = std::get<mLIFE>(measurements[i]);
+      auto vel = std::get<mVEL>(measurements[i]);
 
       // color blend: new-blue, old-red
       double alpha = std::min(1.0, static_cast<double>(ell) / window_length_);
@@ -125,6 +130,10 @@ void FeatureTrackerROS::imageCb(const sensor_msgs::ImageConstPtr& msg)
 
       // draw feature
       cv::circle(img, pt, 2, color, 2);
+
+      // draw prob
+      auto scoreColor = cv::Scalar(0, 255*prob, 255*(1 - prob));
+      cv::circle(img, pt, 2, scoreColor, 1);
 
       // draw velocity
       constexpr double dt = 0.10;
