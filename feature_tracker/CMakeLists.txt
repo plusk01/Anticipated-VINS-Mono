@@ -132,7 +132,7 @@ catkin_package(
 include_directories(include ${catkin_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIRS})
 
 ## Declare a C++ library
-add_library(feature_tracker src/feature_tracker.cpp)
+add_library(feature_tracker src/feature_tracker.cpp src/cvmodified.cpp)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries

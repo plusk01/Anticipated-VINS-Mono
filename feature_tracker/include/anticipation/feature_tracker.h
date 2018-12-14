@@ -6,10 +6,15 @@
 #pragma once
 
 #include <string>
+#include <algorithm>
+#include <iostream>
 
 #include <opencv2/opencv.hpp>
 
 #include <camodocal/camera_models/Camera.h>
+#include <camodocal/camera_models/CameraFactory.h>
+
+#include "anticipation/cvmodified.h"
 
 namespace anticipation
 {
@@ -55,7 +60,6 @@ namespace anticipation
     camodocal::CameraPtr m_camera_; ///< geometric camera model
     Parameters params_; ///< feature tracker parameters
     cv::Ptr<cv::CLAHE> clahe_; ///< contrast-limited adaptive histogram equalization
-    cv::Ptr<cv::GFTTDetector> detector_; ///< feature detector
     cv::Ptr<cv::SparsePyrLKOpticalFlow> flow_; ///< optical flow
 
     // features and related data
@@ -90,13 +94,15 @@ namespace anticipation
     /**
      * @brief      Detect new features in a greyscale image
      *
-     * @param[in]  grey      Greyscale image to find features in
-     * @param      features  The detected images
-     * @param[in]  mask      A mask indicated which areas of the 
-     *                       image to detect features in
+     * @param[in]  grey        Greyscale image to find features in
+     * @param      features    The detected images
+     * @param[in]  maxCorners  Maximum number of corners to detect
+     * @param[in]  mask        A mask indicated which areas of the 
+     *                         image to detect features in
      */ 
     void detectFeatures(const cv::Mat& grey,
                         std::vector<cv::Point2f>& features,
+                        int maxCorners,
                         const cv::Mat& mask = cv::Mat());
 
     /**

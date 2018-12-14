@@ -5,11 +5,6 @@
 
 #include "anticipation/feature_tracker.h"
 
-#include <algorithm>
-#include <iostream>
-
-#include <camodocal/camera_models/CameraFactory.h>
-
 namespace anticipation
 {
 
@@ -19,9 +14,6 @@ FeatureTracker::FeatureTracker(const std::string& calib_file,
 {
   // create camera model from calibration YAML file
   m_camera_ = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
-
-  // initialize the Shi-Tomasi Good Features To Tracker detector
-  detector_ = initGFTTDetector();
 
   // initialize Lucas-Kanade Optical Flow
   flow_ = initOpticalFlow();
@@ -117,12 +109,9 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
   int numFeaturesToDetect = params_.maxFeatures - static_cast<int>(features1_.size());
   if (numFeaturesToDetect > 0) {
 
-    // update the number of features to detect
-    detector_->setMaxFeatures(numFeaturesToDetect);
-
     // look for more features using mask to detect in sparse regions
     std::vector<cv::Point2f> newFeatures1;
-    detectFeatures(img1, newFeatures1, mask);
+    detectFeatures(img1, newFeatures1, numFeaturesToDetect, mask);
 
     // add new features for next time
     size_t newSize = features1_.size() + newFeatures1.size();
@@ -146,20 +135,6 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
 // Private Methods
 // ----------------------------------------------------------------------------
 
-cv::Ptr<cv::GFTTDetector> FeatureTracker::initGFTTDetector()
-{
-  // default parameters for GFTT
-  constexpr double cornerQuality = 0.01;
-  constexpr int blockSize = 3;
-  constexpr bool useHarrisDetector = false;
-  constexpr double k = 0.04;
-
-  return cv::GFTTDetector::create(params_.maxFeatures, cornerQuality,
-                        params_.minDistance, blockSize, useHarrisDetector, k);
-}
-
-// ----------------------------------------------------------------------------
-
 cv::Ptr<cv::SparsePyrLKOpticalFlow> FeatureTracker::initOpticalFlow()
 {
   return cv::SparsePyrLKOpticalFlow::create(); 
@@ -179,16 +154,19 @@ void FeatureTracker::calculateFlow(const cv::Mat& grey0, const cv::Mat& grey1,
 
 void FeatureTracker::detectFeatures(const cv::Mat& grey,
                                     std::vector<cv::Point2f>& features,
+                                    int maxCorners,
                                     const cv::Mat& mask)
 {
-  std::vector<cv::KeyPoint> keypoints;
-  detector_->detect(grey, keypoints, mask);
+  // default parameters for GFTT
+  constexpr double cornerQuality = 0.01;
+  constexpr int blockSize = 3;
+  constexpr bool useHarrisDetector = false;
+  constexpr double k = 0.04;
 
-  // Unpack keypoints and create regular features points
-  features.reserve(keypoints.size());
-  for (auto&& key : keypoints) {
-    features.push_back(key.pt);
-  }
+  std::vector<float> scores;
+  cvmodified::goodFeaturesToTrack(grey, features, scores, maxCorners,
+                                  cornerQuality, params_.minDistance, mask,
+                                  blockSize, useHarrisDetector, k);
 }
 
 // ----------------------------------------------------------------------------
