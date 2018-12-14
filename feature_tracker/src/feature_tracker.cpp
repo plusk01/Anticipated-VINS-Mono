@@ -5,11 +5,6 @@
 
 #include "anticipation/feature_tracker.h"
 
-#include <algorithm>
-#include <iostream>
-
-#include <camodocal/camera_models/CameraFactory.h>
-
 namespace anticipation
 {
 
@@ -19,9 +14,6 @@ FeatureTracker::FeatureTracker(const std::string& calib_file,
 {
   // create camera model from calibration YAML file
   m_camera_ = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
-
-  // initialize the Shi-Tomasi Good Features To Tracker detector
-  detector_ = initGFTTDetector();
 
   // initialize Lucas-Kanade Optical Flow
   flow_ = initOpticalFlow();
@@ -67,6 +59,7 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
     assert(features0.size() == features1_.size());
     assert(features0.size() == ids1_.size());
     assert(features0.size() == lifetimes1_.size());
+    assert(features0.size() == scores1_.size());
 
     // Only keep features that were matched in both frames
     // and that are within the border of the image
@@ -80,6 +73,7 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
         // update feature metadata at the same time
         ids1_[j] = (ids1_[i] == 0) ? nextId_++ : ids1_[i];  // set ID if unset
         lifetimes1_[j] = lifetimes1_[i] + 1;                // inc lifetime
+        scores1_[j] = scores1_[i];
 
         j++;
       }
@@ -88,6 +82,7 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
     features1_.resize(j);
     ids1_.resize(j);
     lifetimes1_.resize(j);
+    scores1_.resize(j);
   }
 
   //
@@ -117,22 +112,22 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
   int numFeaturesToDetect = params_.maxFeatures - static_cast<int>(features1_.size());
   if (numFeaturesToDetect > 0) {
 
-    // update the number of features to detect
-    detector_->setMaxFeatures(numFeaturesToDetect);
-
     // look for more features using mask to detect in sparse regions
     std::vector<cv::Point2f> newFeatures1;
-    detectFeatures(img1, newFeatures1, mask);
+    std::vector<float> newScores1;
+    detectFeatures(img1, newFeatures1, newScores1, numFeaturesToDetect, mask);
 
     // add new features for next time
     size_t newSize = features1_.size() + newFeatures1.size();
     features1_.reserve(newSize);
     ids1_.reserve(newSize);
     lifetimes1_.reserve(newSize);
-    for (const auto& feature : newFeatures1) {
-      features1_.push_back(feature);
+    scores1_.reserve(newSize);
+    for (size_t i=0; i<newFeatures1.size(); ++i) {
+      features1_.push_back(newFeatures1[i]);
       ids1_.push_back(0);
       lifetimes1_.push_back(0);
+      scores1_.push_back(newScores1[i]);
     }
   }
 
@@ -144,20 +139,6 @@ void FeatureTracker::process(const cv::Mat& img, double timestamp)
 
 // ----------------------------------------------------------------------------
 // Private Methods
-// ----------------------------------------------------------------------------
-
-cv::Ptr<cv::GFTTDetector> FeatureTracker::initGFTTDetector()
-{
-  // default parameters for GFTT
-  constexpr double cornerQuality = 0.01;
-  constexpr int blockSize = 3;
-  constexpr bool useHarrisDetector = false;
-  constexpr double k = 0.04;
-
-  return cv::GFTTDetector::create(params_.maxFeatures, cornerQuality,
-                        params_.minDistance, blockSize, useHarrisDetector, k);
-}
-
 // ----------------------------------------------------------------------------
 
 cv::Ptr<cv::SparsePyrLKOpticalFlow> FeatureTracker::initOpticalFlow()
@@ -179,16 +160,19 @@ void FeatureTracker::calculateFlow(const cv::Mat& grey0, const cv::Mat& grey1,
 
 void FeatureTracker::detectFeatures(const cv::Mat& grey,
                                     std::vector<cv::Point2f>& features,
+                                    std::vector<float>& scores,
+                                    int maxCorners,
                                     const cv::Mat& mask)
 {
-  std::vector<cv::KeyPoint> keypoints;
-  detector_->detect(grey, keypoints, mask);
+  // default parameters for GFTT
+  constexpr double cornerQuality = 0.01;
+  constexpr int blockSize = 3;
+  constexpr bool useHarrisDetector = false;
+  constexpr double k = 0.04;
 
-  // Unpack keypoints and create regular features points
-  features.reserve(keypoints.size());
-  for (auto&& key : keypoints) {
-    features.push_back(key.pt);
-  }
+  cvmodified::goodFeaturesToTrack(grey, features, scores, maxCorners,
+                                  cornerQuality, params_.minDistance, mask,
+                                  blockSize, useHarrisDetector, k);
 }
 
 // ----------------------------------------------------------------------------
@@ -220,14 +204,15 @@ cv::Mat FeatureTracker::enforceMinDist(std::vector<cv::Point2f>& features0)
     auto pt = features1_[i];
     auto id = ids1_[i];
     auto ell = lifetimes1_[i];
+    auto score = scores1_[i];
 
     // note that pt0 is in the place of 'nip' for typical measurements
     // and that the 'vel' field is redundant
-    sorted.push_back(std::make_tuple(id, pt, pt0, ell, pt0));
+    sorted.push_back(std::make_tuple(id, pt, score, pt0, ell, pt0));
   }
 
   auto comp = [](const auto& a, const auto& b) -> bool {
-                    return std::get<3>(a) > std::get<3>(b);
+                    return std::get<mLIFE>(a) > std::get<mLIFE>(b);
               };
   std::sort(sorted.begin(), sorted.end(), comp);
 
@@ -237,23 +222,27 @@ cv::Mat FeatureTracker::enforceMinDist(std::vector<cv::Point2f>& features0)
 
   std::vector<cv::Point2f> kept_pts, kept_pts0;
   std::vector<unsigned int> kept_ids, kept_lifetimes;
+  std::vector<double> kept_scores;
   kept_pts0.reserve(features1_.size());
   kept_pts.reserve(features1_.size());
   kept_ids.reserve(features1_.size());
   kept_lifetimes.reserve(features1_.size());
+  kept_scores.reserve(features1_.size());
 
   for (size_t i=0; i<sorted.size(); ++i) {
-    auto pt = std::get<1>(sorted[i]);
+    auto pt = std::get<mPT>(sorted[i]);
     if (mask.at<uchar>(pt) == 255) {
-      auto id = std::get<0>(sorted[i]);
-      auto pt0 = std::get<2>(sorted[i]);
-      auto ell = std::get<3>(sorted[i]);
+      auto id = std::get<mID>(sorted[i]);
+      auto score = std::get<mSCORE>(sorted[i]);
+      auto pt0 = std::get<mNIP>(sorted[i]);
+      auto ell = std::get<mLIFE>(sorted[i]);
 
       // keep good points and their metadata
       kept_pts0.push_back(pt0);
       kept_pts.push_back(pt);
       kept_ids.push_back(id);
       kept_lifetimes.push_back(ell);
+      kept_scores.push_back(score);
 
       // update mask
       cv::circle(mask, pt, params_.minDistance, cv::Scalar(0), -1);
@@ -264,6 +253,7 @@ cv::Mat FeatureTracker::enforceMinDist(std::vector<cv::Point2f>& features0)
   kept_pts.swap(features1_);
   kept_ids.swap(ids1_);
   kept_lifetimes.swap(lifetimes1_);
+  kept_scores.swap(scores1_);
 
   return mask;
 }
@@ -292,6 +282,7 @@ bool FeatureTracker::rejectWithF(std::vector<cv::Point2f>& features0)
       features1_[j] = features1_[i];
       ids1_[j] = ids1_[i];
       lifetimes1_[j] = lifetimes1_[i];
+      scores1_[j] = scores1_[i];
       j++;
     }
   }
@@ -299,6 +290,7 @@ bool FeatureTracker::rejectWithF(std::vector<cv::Point2f>& features0)
   features1_.resize(j);
   ids1_.resize(j);
   lifetimes1_.resize(j);
+  scores1_.resize(j);
 
   return true;
 }
@@ -311,17 +303,23 @@ void FeatureTracker::createMeasurements(const std::vector<cv::Point2f>& features
   assert(features0.size() == features1_.size());
   assert(features0.size() == ids1_.size());
   assert(features0.size() == lifetimes1_.size());
+  assert(features0.size() == scores1_.size());
   assert(std::find(lifetimes1_.begin(), lifetimes1_.end(), 0) == lifetimes1_.end());
 
   // allocate memory for new measurements
   std::vector<measurement_t> measurements;
   measurements.reserve(features1_.size());
 
+  // find the largest score to use as a normalizer to convert to "probability"
+  auto it = std::max_element(scores1_.begin(), scores1_.end());
+  float eta = (it != scores1_.end()) ? *it : 1.0;
+
   for (size_t i=0; i<features1_.size(); ++i) {
     auto pt0 = features0[i];
     auto pt = features1_[i];
     auto id = ids1_[i];
     auto ell = lifetimes1_[i];
+    auto prob = scores1_[i] / eta;
 
     // undistort feature to normalized image plane
     Eigen::Vector2d a(pt.x, pt.y);
@@ -338,7 +336,7 @@ void FeatureTracker::createMeasurements(const std::vector<cv::Point2f>& features
     auto vel = (nip - nip0) / dt_;
 
     // create the measurement tuple
-    measurements.push_back(std::make_tuple(id, pt, nip, ell, vel));
+    measurements.push_back(std::make_tuple(id, pt, prob, nip, ell, vel));
   }
 
   measurements.swap(measurements_);

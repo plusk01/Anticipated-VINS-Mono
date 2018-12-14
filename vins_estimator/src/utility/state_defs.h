@@ -29,7 +29,8 @@ using ablk_t = Eigen::Matrix<double, STATE_SIZE, STATE_SIZE>;
 // map<feature_id, vector<pair< camera_id, feature >>. We assume vector.size() == 0,
 // which means the feature was only seen once in a single frame because there is only
 // one camera. Also, camera_id == 0.
-using image_t = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, 7, 1>>>>;
+enum : int { fPROB=7, fSIZE = 8 };
+using image_t = std::map<int, std::vector<std::pair<int, Eigen::Matrix<double, fSIZE, 1>>>>;
 
 
 
